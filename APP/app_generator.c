@@ -48,7 +48,7 @@ static const char* prv_lec_text(uint8_t lec)
     }
 }
 
-static void prv_print_can_timing(void)
+void App_Gen_Print_Can_Timing(void)
 {
     J1939_Link_Bit_Timing_t t;
     J1939_Link_Get_Bit_Timing(&t);
@@ -72,6 +72,8 @@ static void prv_print_can_timing(void)
     hal_console_write_u32(t.seg2_tq);
     hal_console_write(" = ");
     hal_console_write_u32(t.total_tq);
+    hal_console_write(" TQ | SJW: ");
+    hal_console_write_u32(t.sjw_tq);
     hal_console_write(" TQ | Sample Point: ");
     hal_console_write_float(sample_pct, 1);
     hal_console_write_line("%");
@@ -158,21 +160,17 @@ static void prv_add_default(uint32_t spn, Pattern_Type_t type, float min_v, floa
  * ============================================================================= */
 void App_Gen_Init(uint32_t baud_kbps)
 {
+    /* CAN controller is brought up by the OP lifecycle before this call */
     Pattern_Generator_Init(hal_time_ms());
     J1939_Sched_Clear();
-
     s_baud_kbps = baud_kbps;
-    bool ok = J1939_Link_Init(baud_kbps);
-    prv_print_can_timing();
-    hal_console_write_line(ok ? "[SUCCESS] CAN Hardware Peripheral Initialized."
-                              : "[ERROR] CAN Hardware Initialization Failed!");
 }
 
 bool App_Gen_Set_Baud(uint32_t baud_kbps)
 {
     s_baud_kbps = baud_kbps;
     bool ok = J1939_Link_Init(baud_kbps);
-    prv_print_can_timing();
+    App_Gen_Print_Can_Timing();
     return ok;
 }
 

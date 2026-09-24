@@ -9,7 +9,6 @@
 #define APP_CONFIG_H
 
 #define APP_CONSOLE_BAUD            115200u
-#define APP_BOOT_DELAY_MS           1500u       /* Let USB-serial settle before banner */
 #define APP_CLI_BUF_LEN             128u
 
 #define APP_DEFAULT_CAN_BAUD_KBPS   500u

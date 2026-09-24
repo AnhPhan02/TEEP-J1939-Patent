@@ -1,1 +1,7 @@
 *.o
+build/
+*.elf
+*.hex
+*.bin
+*.map
+*.d

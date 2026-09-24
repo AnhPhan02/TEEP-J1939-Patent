@@ -51,6 +51,7 @@ bool App_Gen_Is_Running(void);
 uint32_t App_Gen_Get_Frames_Sent(void);
 
 void App_Gen_Print_Status(void);
+void App_Gen_Print_Can_Timing(void);
 
 /* Call every loop iteration */
 void App_Gen_Process(uint32_t now_ms);
