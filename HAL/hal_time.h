@@ -14,6 +14,8 @@ extern "C" {
 
 #include <stdint.h>
 
+/* Start the 1 ms tick from the given core clock */
+void     hal_time_init(uint32_t hclk_hz);
 uint32_t hal_time_ms(void);
 void     hal_delay_ms(uint32_t ms);
 
