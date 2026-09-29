@@ -26,6 +26,8 @@ static uint8_t              s_pgn_count = 0u;
 
 static J1939_Sched_Mode_t   s_mode = J1939_SCHED_MODE_SMOOTH;
 
+volatile J1939_Debug_Watch_t g_j1939_dbg = { .watch_spn = SPN_ENGINE_SPEED };
+
 /* =============================================================================
  * PRIVATE
  * ============================================================================= */
@@ -49,6 +51,29 @@ static Sched_PGN_Entry_t* prv_ensure_pgn(uint32_t pgn, uint32_t now_ms)
         entry->last_tx_ms = now_ms;
     }
     return entry;
+}
+
+static void prv_debug_capture(const Sched_PGN_Entry_t* entry,
+                              const J1939_Signal_Definition_t* def,
+                              float value,
+                              const uint8_t* payload,
+                              J1939_Link_Status_t status,
+                              uint32_t now_ms)
+{
+    J1939_Frame_Header_t hdr;
+    hdr.pgn = entry->timing.pgn;
+    hdr.priority = entry->timing.priority;
+    hdr.source_address = entry->timing.source_address;
+    hdr.destination_address = J1939_ADDR_GLOBAL;
+
+    g_j1939_dbg.value = value;
+    g_j1939_dbg.decoded = J1939_Decode_Signal(def, payload);
+    g_j1939_dbg.can_id = J1939_Frame_Build_Id(&hdr);
+    for (uint8_t i = 0; i < 8u; i++) {
+        g_j1939_dbg.data[i] = payload[i];
+    }
+    g_j1939_dbg.link_status = (uint8_t)status;
+    g_j1939_dbg.timestamp_ms = now_ms;
 }
 
 static uint32_t prv_period_ms(const Sched_PGN_Entry_t* entry)
@@ -147,19 +172,31 @@ void J1939_Sched_Tick(uint32_t now_ms, J1939_Sched_Tick_Result_t* result)
         uint8_t payload[8];
         J1939_Initialize_Payload(payload);
 
+        const J1939_Signal_Definition_t* watch_def = NULL;
+        float watch_value = 0.0f;
+
         for (uint8_t s = 0; s < s_signal_count; s++) {
             const J1939_Sched_Signal_t* sig = &s_signals[s];
             if (sig->pgn == entry->timing.pgn) {
                 float value = Pattern_Generator_Get_Value_Instant(sig->spn, now_ms, sig->def->min_physical);
                 J1939_Encode_Signal(sig->def, value, payload);
+                if (sig->spn == g_j1939_dbg.watch_spn) {
+                    watch_def = sig->def;
+                    watch_value = value;
+                }
             }
         }
 
-        switch (J1939_Link_Send(entry->timing.pgn, payload, 8u,
-                                entry->timing.priority, entry->timing.source_address)) {
-            case J1939_LINK_OK:   local.sent++;   break;
-            case J1939_LINK_BUSY: local.busy++;   break;
-            default:              local.failed++; break;
+        J1939_Link_Status_t status = J1939_Link_Send(entry->timing.pgn, payload, 8u,
+                                                     entry->timing.priority, entry->timing.source_address);
+        switch (status) {
+            case J1939_LINK_OK:   local.sent++;   g_j1939_dbg.tx_ok++;    break;
+            case J1939_LINK_BUSY: local.busy++;   g_j1939_dbg.tx_busy++;  break;
+            default:              local.failed++; g_j1939_dbg.tx_error++; break;
+        }
+
+        if (watch_def != NULL) {
+            prv_debug_capture(entry, watch_def, watch_value, payload, status, now_ms);
         }
     }
 

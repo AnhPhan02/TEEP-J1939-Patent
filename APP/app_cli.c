@@ -8,6 +8,7 @@
 #include "app_cli.h"
 #include "app_config.h"
 #include "app_generator.h"
+#include "j1939_link.h"
 #include "hal_console.h"
 #include <stddef.h>
 #include <stdlib.h>
@@ -150,7 +151,7 @@ static void prv_cmd_clear(void)
 /* BAUD <250|500> */
 static void prv_cmd_baud(char* args)
 {
-    uint32_t baud = (args != NULL) ? (uint32_t)strtoul(args, NULL, 10) : 500u;
+    uint32_t baud = (args != NULL) ? (uint32_t)strtoul(args, NULL, 10) : APP_DEFAULT_CAN_BAUD_KBPS;
     if (baud != 250u && baud != 500u) {
         hal_console_write_line("[ERR] Supported baud rates are 250 or 500 kbps.");
         return;
@@ -163,6 +164,83 @@ static void prv_cmd_baud(char* args)
     } else {
         hal_console_write_line("[ERR] CAN hardware failed to initialize at requested baud rate.");
     }
+}
+
+/* =============================================================================
+ * CANTEST - prove the CAN configuration and isolate firmware vs hardware
+ * ============================================================================= */
+static void prv_print_level(const char* label, bool high, bool expect_high)
+{
+    hal_console_write(label);
+    hal_console_write(high ? "HIGH" : "LOW ");
+    hal_console_write_line((high == expect_high) ? "  [OK]" : "  [FAIL]");
+}
+
+static void prv_cmd_cantest(void)
+{
+    J1939_Link_Diag_t d;
+    J1939_Link_Bit_Timing_t t;
+    J1939_Link_Get_Bit_Timing(&t);
+    J1939_Link_Diagnose(&d);
+
+    uint32_t brp = (d.btr & 0x3FFu) + 1u;
+    uint32_t ts1 = ((d.btr >> 16) & 0xFu) + 1u;
+    uint32_t ts2 = ((d.btr >> 20) & 0x7u) + 1u;
+    uint32_t div = brp * (1u + ts1 + ts2);
+    uint32_t remap = (d.afio_mapr >> 13) & 0x3u;
+    bool test_mode = (d.btr & 0xC0000000u) != 0u;
+
+    hal_console_write_line("============== CANTEST ==============");
+    hal_console_write_line("[1] Registers read back from the chip");
+    hal_console_write("    MCR=0x");  hal_console_write_hex(d.mcr);
+    hal_console_write(" MSR=0x");     hal_console_write_hex(d.msr);
+    hal_console_write(" BTR=0x");     hal_console_write_hex(d.btr);
+    hal_console_write(" ESR=0x");     hal_console_write_hex(d.esr);
+    hal_console_write_line(NULL);
+
+    hal_console_write("    Bitrate from BTR: ");
+    hal_console_write_u32((div > 0u) ? t.pclk_hz / div : 0u);
+    hal_console_write(" bps (BRP ");  hal_console_write_u32(brp);
+    hal_console_write(", 1+");        hal_console_write_u32(ts1);
+    hal_console_write("+");           hal_console_write_u32(ts2);
+    hal_console_write_line(test_mode ? " TQ) LOOPBACK/SILENT BIT SET  [FAIL]" : " TQ, normal mode)");
+
+    hal_console_write("    CAN_REMAP = ");
+    hal_console_write_u32(remap);
+    hal_console_write_line((remap == 2u) ? " -> RX=PB8 TX=PB9  [OK]" : " -> not PB8/PB9  [FAIL]");
+
+    hal_console_write("    PB8 cfg=0x");  hal_console_write_hex(d.rx_cfg);
+    hal_console_write((d.rx_cfg == 0x8u || d.rx_cfg == 0x4u) ? " (input) [OK]" : " [FAIL]");
+    hal_console_write(" | PB9 cfg=0x");   hal_console_write_hex(d.tx_cfg);
+    hal_console_write_line((d.tx_cfg == 0xBu) ? " (AF push-pull) [OK]" : " [FAIL]");
+
+    hal_console_write("    MCR: ");
+    hal_console_write((d.mcr & 0x1u) ? "INIT MODE [FAIL] " : "normal mode [OK] ");
+    hal_console_write_line((d.mcr & (1u << 6)) ? "| ABOM on" : "| ABOM off");
+
+    hal_console_write("    MSR.RX (live CAN_RX pin) = ");
+    hal_console_write_line((d.msr & (1u << 11)) ? "1 (recessive)" : "0 (dominant)");
+
+    hal_console_write_line("[2] Transceiver echo test (bxCAN bypassed, PB9 driven as GPIO)");
+    prv_print_level("    PB9 = 1 (recessive) -> PB8 = ", d.rx_high_idle, true);
+    prv_print_level("    PB9 = 0 (dominant)  -> PB8 = ", !d.rx_low_dominant, false);
+    prv_print_level("    PB9 = 1 (released)  -> PB8 = ", d.rx_high_release, true);
+
+    hal_console_write("[3] Verdict: ");
+    if (!d.rx_high_idle) {
+        hal_console_write_line("RX stuck LOW -> bus shorted dominant, RXD (pin 4) wiring, or transceiver fault.");
+    } else if (!d.rx_low_dominant) {
+        hal_console_write_line("HARDWARE: transceiver does not echo TX.");
+        hal_console_write_line("    Check MCP2561 pin 8 STBY = GND, pin 3 VDD = 5 V, PB9 -> pin 1 TXD, PB8 <- pin 4 RXD.");
+    } else if (remap != 2u || test_mode || d.tx_cfg != 0xBu) {
+        hal_console_write_line("FIRMWARE: pin echo OK but CAN configuration is wrong (see [FAIL] above).");
+    } else {
+        hal_console_write_line("TX->RX path OK. If errors remain: bitrate/termination/TSMaster channel (expect LEC 3 or 1/2).");
+    }
+    hal_console_write_line("=====================================");
+
+    /* Restart the controller at the current bitrate */
+    (void)App_Gen_Set_Baud(App_Gen_Get_Baud());
 }
 
 static void prv_process_line(char* line)
@@ -193,10 +271,12 @@ static void prv_process_line(char* line)
     } else if (strcasecmp(line, "RESET") == 0) {
         prv_cmd_clear();
         hal_console_write_line("[ACK] System state reset to IDLE.");
+    } else if (strcasecmp(line, "CANTEST") == 0) {
+        prv_cmd_cantest();
     } else {
         hal_console_write("[ERR] Unknown command '");
         hal_console_write(line);
-        hal_console_write_line("'. Available: CONFIG, START, STOP, CLEAR, BAUD, STATUS, RESET");
+        hal_console_write_line("'. Available: CONFIG, START, STOP, CLEAR, BAUD, STATUS, RESET, CANTEST");
     }
 }
 

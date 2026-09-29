@@ -26,6 +26,7 @@ typedef enum {
 
 typedef hal_can_bit_timing_t J1939_Link_Bit_Timing_t;
 typedef hal_can_error_t      J1939_Link_Bus_Error_t;
+typedef hal_can_diag_t       J1939_Link_Diag_t;
 
 /* Initialize the underlying CAN controller (250 or 500 kbps for J1939) */
 bool J1939_Link_Init(uint32_t baud_kbps);
@@ -42,6 +43,10 @@ bool J1939_Link_Receive(J1939_Frame_Header_t* hdr, uint8_t* data, uint8_t* data_
 
 void J1939_Link_Get_Bit_Timing(J1939_Link_Bit_Timing_t* out);
 void J1939_Link_Get_Bus_Error(J1939_Link_Bus_Error_t* out);
+
+/* Register snapshot + transceiver echo test. Leaves the controller stopped:
+ * call J1939_Link_Init() afterwards. */
+void J1939_Link_Diagnose(J1939_Link_Diag_t* out);
 
 #ifdef __cplusplus
 }

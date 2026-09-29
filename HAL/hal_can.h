@@ -43,6 +43,28 @@ typedef struct {
     bool     bus_off;       /* TEC > 255, controller off the bus */
 } hal_can_error_t;
 
+/* Hardware diagnosis: register snapshot + transceiver echo test */
+typedef struct {
+    bool     clocked;           /* CAN peripheral clock was enabled */
+    uint32_t mcr;               /* Register snapshot taken before the pin test */
+    uint32_t msr;
+    uint32_t btr;
+    uint32_t esr;
+    uint32_t afio_mapr;         /* CAN_REMAP in bits 14:13 (SWJ bits read undefined) */
+    uint32_t port_cr;           /* GPIO CRL/CRH word holding the CAN pins */
+    uint8_t  rx_cfg;            /* CNF:MODE nibble of the RX pin */
+    uint8_t  tx_cfg;            /* CNF:MODE nibble of the TX pin */
+    bool     rx_high_idle;      /* RX level with TX driven recessive (expect true) */
+    bool     rx_low_dominant;   /* RX level went low with TX driven dominant (expect true) */
+    bool     rx_high_release;   /* RX back high after TX released (expect true) */
+} hal_can_diag_t;
+
+/* Snapshot the CAN registers, then drive the TX pin as a plain GPIO
+ * (recessive -> 20 us dominant -> recessive) and read the RX pin back.
+ * Bypasses the bxCAN controller entirely, so a failing echo points at the
+ * transceiver / wiring. Leaves the controller stopped: call hal_can_init() after. */
+void hal_can_diagnose(hal_can_diag_t* out);
+
 /* Initialize (or re-initialize) the controller at the given bitrate and join
  * the bus. Returns false if the bitrate cannot be generated exactly from the
  * peripheral clock or the controller does not acknowledge the mode change. */
