@@ -295,6 +295,7 @@ typedef struct {
 
 #define CAN_MSR_INAK                (1u << 0)
 #define CAN_MSR_SLAK                (1u << 1)
+#define CAN_MSR_RX                  (1u << 11)  /* actual level of the CAN_RX pin */
 
 #define CAN_TSR_ABRQ0               (1u << 7)
 #define CAN_TSR_ABRQ1               (1u << 15)

@@ -56,3 +56,8 @@ void J1939_Link_Get_Bus_Error(J1939_Link_Bus_Error_t* out)
 {
     hal_can_get_error(out);
 }
+
+void J1939_Link_Diagnose(J1939_Link_Diag_t* out)
+{
+    hal_can_diagnose(out);
+}

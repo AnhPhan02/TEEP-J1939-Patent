@@ -42,6 +42,26 @@ typedef struct {
     uint16_t failed;                /* Frames dropped: driver error */
 } J1939_Sched_Tick_Result_t;
 
+/* =============================================================================
+ * DEBUG WATCH - read it live with a debugger (Live Watch / ST-LINK memory view).
+ * Follows one signal from physical value to the bytes handed to the CAN
+ * controller. Write watch_spn from the debugger to follow another SPN.
+ * ============================================================================= */
+typedef struct {
+    uint32_t watch_spn;         /* SPN to follow (default 190 Engine Speed) - writable */
+    float    value;             /* Physical value encoded for watch_spn */
+    float    decoded;           /* Value decoded back from the payload (round-trip check) */
+    uint32_t can_id;            /* 29-bit ID of the frame that carried it */
+    uint8_t  data[8];           /* Payload exactly as handed to the CAN controller */
+    uint8_t  link_status;       /* 0 = OK (queued), 1 = BUSY (mailboxes full), 2 = ERROR */
+    uint32_t timestamp_ms;      /* hal_time_ms() when the frame was queued */
+    uint32_t tx_ok;             /* All frames queued since boot */
+    uint32_t tx_busy;           /* All frames dropped: mailboxes full */
+    uint32_t tx_error;          /* All frames dropped: driver error */
+} J1939_Debug_Watch_t;
+
+extern volatile J1939_Debug_Watch_t g_j1939_dbg;
+
 /* Remove all signals and PGNs */
 void J1939_Sched_Clear(void);
 

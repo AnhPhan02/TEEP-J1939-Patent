@@ -288,6 +288,60 @@ bool hal_can_receive_ext(uint32_t* ext_id, uint8_t* data, uint8_t* len)
     return true;
 }
 
+static void prv_delay_us(uint32_t us)
+{
+    hal_clock_info_t clk;
+    hal_system_get_clocks(&clk);
+    /* ~6 cycles per iteration at -Os; precision is not critical here */
+    for (volatile uint32_t i = 0; i < us * (clk.sysclk_hz / 6000000u); i++) { }
+}
+
+static bool prv_rx_pin_high(void)
+{
+    return (BOARD_CAN_PORT->IDR & (1u << BOARD_CAN_RX_PIN)) != 0u;
+}
+
+void hal_can_diagnose(hal_can_diag_t* out)
+{
+    if (out == NULL) {
+        return;
+    }
+
+    /* 1. Register snapshot, exactly as the running driver left them */
+    out->clocked = (RCC->APB1ENR & RCC_APB1_CAN) != 0u;
+    out->mcr = out->clocked ? CAN1->MCR : 0u;
+    out->msr = out->clocked ? CAN1->MSR : 0u;
+    out->btr = out->clocked ? CAN1->BTR : 0u;
+    out->esr = out->clocked ? CAN1->ESR : 0u;
+    out->afio_mapr = AFIO->MAPR;
+    out->port_cr = (BOARD_CAN_RX_PIN < 8u) ? BOARD_CAN_PORT->CRL : BOARD_CAN_PORT->CRH;
+    out->rx_cfg = (uint8_t)((out->port_cr >> ((BOARD_CAN_RX_PIN & 7u) * 4u)) & 0xFu);
+    out->tx_cfg = (uint8_t)((out->port_cr >> ((BOARD_CAN_TX_PIN & 7u) * 4u)) & 0xFu);
+
+    /* 2. Take TX away from bxCAN and drive it by hand */
+    hal_can_stop();
+    RCC->APB2ENR |= BOARD_CAN_PORT_CLK;
+    BOARD_CAN_PORT->BSRR = 1u << BOARD_CAN_TX_PIN;                  /* recessive */
+    board_gpio_config(BOARD_CAN_PORT, BOARD_CAN_TX_PIN, GPIO_CFG_OUT_PP_2MHZ);
+    prv_delay_us(200u);
+    out->rx_high_idle = prv_rx_pin_high();
+
+    /* Short dominant pulse (5 bit times at 250 kbit/s, far below the
+     * transceiver's TXD dominant time-out); IRQs off to keep it short */
+    cpu_disable_irq();
+    BOARD_CAN_PORT->BSRR = 1u << (BOARD_CAN_TX_PIN + 16u);          /* dominant */
+    prv_delay_us(20u);
+    out->rx_low_dominant = !prv_rx_pin_high();
+    BOARD_CAN_PORT->BSRR = 1u << BOARD_CAN_TX_PIN;                  /* release */
+    cpu_enable_irq();
+
+    prv_delay_us(200u);
+    out->rx_high_release = prv_rx_pin_high();
+
+    /* 3. Hand the pin back to bxCAN (controller stays stopped) */
+    board_gpio_config(BOARD_CAN_PORT, BOARD_CAN_TX_PIN, GPIO_CFG_AF_PP_50MHZ);
+}
+
 void hal_can_get_bit_timing(hal_can_bit_timing_t* out)
 {
     if (out != NULL) {

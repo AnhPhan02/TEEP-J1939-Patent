@@ -1,10 +1,6 @@
 /*
  * =============================================================================
  * FILE : op_main.c
- * WHAT : Firmware entry point and system lifecycle.
- *        J1939 DYNAMIC WAVEFORM GENERATOR & VERIFICATION HUB
- *   Creators: Vishal Meyyappan R (3rd Year ECE - ACT) & Srikar (4th year ECE)
- *   Institution: Chennai Institute of Technology (CIT Chennai) & STUST
  * =============================================================================
  */
 
@@ -93,9 +89,7 @@ static void prv_board_init(void)
     hal_console_write_line(NULL);
     hal_console_write_line("=======================================================");
     hal_console_write_line("  J1939 DYNAMIC WAVEFORM GENERATOR & VERIFICATION HUB  ");
-    hal_console_write_line("  Chennai Institute of Technology (CIT Chennai) & STUST");
-    hal_console_write_line("  Creators: Vishal Meyyappan R (3rd Year ECE - ACT)");
-    hal_console_write_line("            Srikar (4th year ECE)");
+    hal_console_write_line("-----------------------VIETNAM TEAM--------------------");
     hal_console_write_line("=======================================================");
 
     hal_console_write("[BOOT] Reset cause: ");
