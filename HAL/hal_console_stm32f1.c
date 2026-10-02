@@ -88,6 +88,12 @@ int hal_console_read(void)
     return c;
 }
 
+uint16_t hal_console_tx_free(void)
+{
+    uint16_t used = (uint16_t)((s_tx_head - s_tx_tail) & (TX_BUF_SIZE - 1u));
+    return (uint16_t)(TX_BUF_SIZE - 1u - used);
+}
+
 void hal_console_write(const char* str)
 {
     if (str == NULL) {

@@ -27,9 +27,10 @@ CFLAGS      := $(CPU) -std=gnu11 -Os -g3 -Wall -Wextra \
                -ffunction-sections -fdata-sections -fno-common \
                $(INCLUDES) -MMD -MP
 ASFLAGS     := $(CPU) -x assembler-with-cpp
-LDFLAGS     := $(CPU) -T$(LDSCRIPT) --specs=nano.specs --specs=nosys.specs \
-               -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(TARGET).map,--cref \
-               -Wl,--print-memory-usage
+LDFLAGS := $(CPU) -fno-use-linker-plugin \
+           -T$(LDSCRIPT) --specs=nano.specs --specs=nosys.specs \
+           -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(TARGET).map,--cref \
+           -Wl,--print-memory-usage
 LDLIBS      := -lm
 
 OBJECTS     := $(addprefix $(BUILD)/,$(C_SOURCES:.c=.o)) \
