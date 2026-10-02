@@ -26,6 +26,10 @@ void hal_console_write_i32(int32_t value);
 void hal_console_write_hex(uint32_t value);
 void hal_console_write_float(float value, uint8_t decimals);
 
+/* Free bytes in the TX ring buffer - lets callers drop a line instead of
+ * blocking when the UART cannot keep up */
+uint16_t hal_console_tx_free(void);
+
 #ifdef __cplusplus
 }
 #endif
