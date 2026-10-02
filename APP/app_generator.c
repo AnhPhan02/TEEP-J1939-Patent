@@ -103,14 +103,17 @@ static void prv_print_can_busy_warning(void)
 
 static void prv_print_telemetry(void)
 {
+#if APP_TELEMETRY_SHOW_SIGNALS
     uint8_t count = J1939_Sched_Get_Signal_Count();
     if (count == 0u) {
         return;
     }
+#endif
 
     hal_console_write("[TX] Frames: ");
     hal_console_write_u32(s_total_frames_sent);
 
+#if APP_TELEMETRY_SHOW_SIGNALS
     uint8_t display_count = (count <= 8u) ? count : 6u;
     for (uint8_t i = 0; i < display_count; i++) {
         const J1939_Sched_Signal_t* sig = J1939_Sched_Get_Signal(i);
@@ -126,6 +129,7 @@ static void prv_print_telemetry(void)
         hal_console_write_u32(count);
         hal_console_write(" SPNs transmitting on CAN]");
     }
+#endif
     hal_console_write_line(NULL);
 }
 
@@ -163,6 +167,7 @@ void App_Gen_Init(uint32_t baud_kbps)
     /* CAN controller is brought up by the OP lifecycle before this call */
     Pattern_Generator_Init(hal_time_ms());
     J1939_Sched_Clear();
+    J1939_Sched_Set_Tx_Log(APP_TXLOG_DEFAULT_ON != 0u);
     s_baud_kbps = baud_kbps;
 }
 
@@ -279,6 +284,15 @@ void App_Gen_Start(uint32_t duration_sec, J1939_Sched_Mode_t mode)
     s_total_frames_sent = 0u;
     s_is_running = true;
 
+    /* Machine-readable run marker: waveform time t = now_ms - t0_ms */
+    hal_console_write("$RUN,");
+    hal_console_write_u32(now);
+    hal_console_write(",");
+    hal_console_write_u32((uint32_t)mode);
+    hal_console_write(",");
+    hal_console_write_u32(duration_sec);
+    hal_console_write_line(NULL);
+
     hal_console_write_line("=========================================");
     hal_console_write("[ACK] START OK | Mode: ");
     hal_console_write(prv_mode_name(mode));
@@ -299,6 +313,13 @@ void App_Gen_Start(uint32_t duration_sec, J1939_Sched_Mode_t mode)
 
 void App_Gen_Stop(void)
 {
+    if (s_is_running) {
+        hal_console_write("$END,");
+        hal_console_write_u32(hal_time_ms());
+        hal_console_write(",");
+        hal_console_write_u32(J1939_Sched_Get_Tx_Seq());
+        hal_console_write_line(NULL);
+    }
     s_is_running = false;
     Pattern_Generator_Stop();
 }
@@ -347,6 +368,11 @@ void App_Gen_Print_Status(void)
 
     hal_console_write("Total Frames Sent: ");
     hal_console_write_u32(s_total_frames_sent);
+    hal_console_write_line(NULL);
+    hal_console_write("TX Log: ");
+    hal_console_write(J1939_Sched_Get_Tx_Log() ? "ON" : "OFF");
+    hal_console_write(" | Lines dropped (UART full): ");
+    hal_console_write_u32(J1939_Sched_Get_Tx_Log_Dropped());
     hal_console_write_line(NULL);
     hal_console_write_line("------------------------------------------");
 }

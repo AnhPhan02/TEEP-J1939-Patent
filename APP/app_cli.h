@@ -2,7 +2,7 @@
  * =============================================================================
  * FILE : app_cli.h
  * WHAT : Line-based serial command interface.
- *        CONFIG | START | STOP | CLEAR | BAUD | STATUS | RESET
+ *        CONFIG | START | STOP | CLEAR | BAUD | STATUS | RESET | CANTEST | TXLOG
  * =============================================================================
  */
 

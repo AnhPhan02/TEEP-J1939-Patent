@@ -166,6 +166,16 @@ static void prv_cmd_baud(char* args)
     }
 }
 
+/* TXLOG <0|1>   per-frame $TX log for TX/RX correlation */
+static void prv_cmd_txlog(char* args)
+{
+    if (args != NULL && *args != '\0') {
+        J1939_Sched_Set_Tx_Log(atoi(args) != 0);
+    }
+    hal_console_write("[ACK] TXLOG ");
+    hal_console_write_line(J1939_Sched_Get_Tx_Log() ? "ON" : "OFF");
+}
+
 /* =============================================================================
  * CANTEST - prove the CAN configuration and isolate firmware vs hardware
  * ============================================================================= */
@@ -273,10 +283,12 @@ static void prv_process_line(char* line)
         hal_console_write_line("[ACK] System state reset to IDLE.");
     } else if (strcasecmp(line, "CANTEST") == 0) {
         prv_cmd_cantest();
+    } else if (strcasecmp(line, "TXLOG") == 0) {
+        prv_cmd_txlog(args);
     } else {
         hal_console_write("[ERR] Unknown command '");
         hal_console_write(line);
-        hal_console_write_line("'. Available: CONFIG, START, STOP, CLEAR, BAUD, STATUS, RESET, CANTEST");
+        hal_console_write_line("'. Available: CONFIG, START, STOP, CLEAR, BAUD, STATUS, RESET, CANTEST, TXLOG");
     }
 }
 

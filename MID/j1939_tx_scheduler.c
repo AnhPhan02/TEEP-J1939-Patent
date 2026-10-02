@@ -9,6 +9,7 @@
 #include "j1939_pgn_timing.h"
 #include "j1939_encode_decode.h"
 #include "j1939_link.h"
+#include "hal_console.h"
 #include <stddef.h>
 #include <string.h>
 
@@ -154,6 +155,96 @@ void J1939_Sched_Reset_Timers(uint32_t now_ms)
         s_pgns[i].last_tx_ms = now_ms;
     }
 }
+/* =============================================================================
+ * TX FRAME LOG - one machine-readable line per frame handed to the CAN driver:
+ *   $TX,<seq>,<t_ms>,<can_id hex8>,<data hex16>,<Q|B|E>
+ * seq counts every send attempt, so a gap in seq means the UART log dropped
+ * lines (TX buffer full), not that the frame was lost on the bus. The line is
+ * skipped instead of blocking when the UART cannot keep up.
+ * ============================================================================= */
+static bool     s_tx_log_enabled = false;
+static uint32_t s_tx_seq = 0u;
+static uint32_t s_tx_log_dropped = 0u;
+
+static char* prv_put_hex(char* p, uint32_t value, uint8_t digits)
+{
+    static const char k_hex[] = "0123456789ABCDEF";
+    for (int8_t d = (int8_t)digits - 1; d >= 0; d--) {
+        *p++ = k_hex[(value >> ((uint8_t)d * 4u)) & 0xFu];
+    }
+    return p;
+}
+
+static char* prv_put_u32(char* p, uint32_t value)
+{
+    char tmp[10];
+    uint8_t n = 0u;
+    do {
+        tmp[n++] = (char)('0' + (value % 10u));
+        value /= 10u;
+    } while (value > 0u);
+    while (n > 0u) {
+        *p++ = tmp[--n];
+    }
+    return p;
+}
+
+static void prv_log_tx_frame(const Sched_PGN_Entry_t* entry,
+                             const uint8_t* payload,
+                             J1939_Link_Status_t status,
+                             uint32_t seq,
+                             uint32_t now_ms)
+{
+    J1939_Frame_Header_t hdr;
+    hdr.pgn = entry->timing.pgn;
+    hdr.priority = entry->timing.priority;
+    hdr.source_address = entry->timing.source_address;
+    hdr.destination_address = J1939_ADDR_GLOBAL;
+
+    char line[64];
+    char* p = line;
+    *p++ = '$'; *p++ = 'T'; *p++ = 'X'; *p++ = ',';
+    p = prv_put_u32(p, seq);
+    *p++ = ',';
+    p = prv_put_u32(p, now_ms);
+    *p++ = ',';
+    p = prv_put_hex(p, J1939_Frame_Build_Id(&hdr), 8u);
+    *p++ = ',';
+    for (uint8_t i = 0u; i < 8u; i++) {
+        p = prv_put_hex(p, payload[i], 2u);
+    }
+    *p++ = ',';
+    *p++ = (status == J1939_LINK_OK) ? 'Q' : ((status == J1939_LINK_BUSY) ? 'B' : 'E');
+    *p = '\0';
+
+    /* +2 for the CR LF added by write_line */
+    if (hal_console_tx_free() < (uint16_t)(p - line) + 2u) {
+        s_tx_log_dropped++;
+        return;
+    }
+    hal_console_write_line(line);
+}
+
+void J1939_Sched_Set_Tx_Log(bool enable)
+{
+    s_tx_log_enabled = enable;
+    s_tx_log_dropped = 0u;
+}
+
+bool J1939_Sched_Get_Tx_Log(void)
+{
+    return s_tx_log_enabled;
+}
+
+uint32_t J1939_Sched_Get_Tx_Log_Dropped(void)
+{
+    return s_tx_log_dropped;
+}
+
+uint32_t J1939_Sched_Get_Tx_Seq(void)
+{
+    return s_tx_seq;
+}
 
 void J1939_Sched_Tick(uint32_t now_ms, J1939_Sched_Tick_Result_t* result)
 {
@@ -189,6 +280,11 @@ void J1939_Sched_Tick(uint32_t now_ms, J1939_Sched_Tick_Result_t* result)
 
         J1939_Link_Status_t status = J1939_Link_Send(entry->timing.pgn, payload, 8u,
                                                      entry->timing.priority, entry->timing.source_address);
+        s_tx_seq++;
+        if (s_tx_log_enabled) {
+            prv_log_tx_frame(entry, payload, status, s_tx_seq, now_ms);
+        }
+
         switch (status) {
             case J1939_LINK_OK:   local.sent++;   g_j1939_dbg.tx_ok++;    break;
             case J1939_LINK_BUSY: local.busy++;   g_j1939_dbg.tx_busy++;  break;

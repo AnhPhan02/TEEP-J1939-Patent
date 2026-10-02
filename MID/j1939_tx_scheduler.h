@@ -86,6 +86,12 @@ uint8_t J1939_Sched_Get_Signal_Count(void);
 const J1939_Sched_Signal_t* J1939_Sched_Get_Signal(uint8_t index);
 uint8_t J1939_Sched_Get_PGN_Count(void);
 
+/* $TX frame log on the console (see j1939_tx_scheduler.c for the format) */
+void     J1939_Sched_Set_Tx_Log(bool enable);
+bool     J1939_Sched_Get_Tx_Log(void);
+uint32_t J1939_Sched_Get_Tx_Log_Dropped(void);  /* lines skipped: UART too slow */
+uint32_t J1939_Sched_Get_Tx_Seq(void);          /* send attempts since boot */
+
 #ifdef __cplusplus
 }
 #endif
