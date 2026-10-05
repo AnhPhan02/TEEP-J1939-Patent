@@ -76,6 +76,64 @@ class ScenarioTests(unittest.TestCase):
             scenario.write_changed(path, 'test')
             self.assertEqual(first, path.stat().st_mtime_ns)
 
+    def test_expected_values_and_timing(self):
+        signals = scenario.read_scenario(ROOT / 'input/continuous_signals.csv', self.metadata)
+        rows = list(scenario.expected_rows(signals, 2201))
+        first = rows[0]
+        self.assertEqual(first[:4], [0, '0CF00400', 61444, 190])
+        self.assertEqual(first[5], 12000)
+        speed = [row for row in rows if row[3] == 84]
+        self.assertEqual([row[0] for row in speed], [2000, 2100, 2200])
+        self.assertEqual(float(speed[1][4]), 0.75)
+        pedal = [row for row in rows if row[3] == 91]
+        self.assertTrue(all(row[5] == 100 for row in pedal))
+        finite = self.load_rows([[190, 7, 20, 40, 'constant', 1500, '', '', '', '']])
+        self.assertEqual([row[0] for row in scenario.expected_rows(finite, 100)], [7, 27])
+
+    def test_reference_waveforms(self):
+        quarter = {'ramp': 25, 'sine': 100, 'triangle': 50,
+                   'square': 100, 'step': 100 / 3}
+        for pattern, value in quarter.items():
+            signals = self.load_rows([[190, 7, 20, 0, pattern, '', 0, 100, 1000,
+                                       4 if pattern == 'step' else '']])
+            self.assertAlmostEqual(scenario.physical_value(signals[0], 257), value)
+
+    def test_dbc_bit_layout(self):
+        signals = scenario.read_scenario(ROOT / 'input/continuous_signals.csv', self.metadata)
+        dbc = scenario.dbc_text(signals)
+        self.assertIn('BO_ 2364539904 PGN_61444: 8 STM32', dbc)
+        self.assertIn('SG_ SPN_190 : 24|16@1+ (0.125,0)', dbc)
+        self.assertIn(f'BO_ {0x80000000 | 0x0CF00300} PGN_61443', dbc)
+        self.assertIn('"VFrameFormat"', dbc)
+
+    def test_cli_exports_and_scenario_switch(self):
+        with tempfile.TemporaryDirectory() as d:
+            output = Path(d) / 'generated'
+            command = [sys.executable, str(ROOT / 'tools/scenario.py'),
+                       '--input', str(ROOT / 'input/continuous_signals.csv'),
+                       '--metadata', str(ROOT / 'build/export_metadata'), '--output', str(output)]
+            subprocess.run(command + ['--horizon-ms', '100'], check=True)
+            first = (output / 'scenario.h').read_bytes()
+            subprocess.run(command, check=True)
+            self.assertEqual(first, (output / 'scenario.h').read_bytes())
+            with (output / 'expected.csv').open() as f:
+                expected = list(csv.DictReader(f))
+            manifest = json.loads((output / 'scenario.json').read_text())
+            self.assertTrue(all(row['scenario_id'] == manifest['scenario_id'] for row in expected))
+            self.assertEqual(len(expected), 5)
+            alternative = Path(d) / 'other.csv'
+            alternative.write_text(','.join(scenario.FIELDS) + '\n190,0,20,0,constant,1600,,,,\n')
+            changed = command.copy()
+            changed[changed.index('--input') + 1] = str(alternative)
+            subprocess.run(changed, check=True)
+            self.assertNotEqual(first, (output / 'scenario.h').read_bytes())
+            self.assertFalse((output / 'expected.csv').exists())
+            self.assertFalse((output / 'expected.json').exists())
+            result = subprocess.run(changed + ['--horizon-ms', '0'], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('horizon-ms', result.stderr)
+
+
 
 if __name__ == '__main__':
     unittest.main()

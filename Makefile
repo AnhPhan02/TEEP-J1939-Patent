@@ -95,3 +95,7 @@ $(BUILD)/firmware_test: tests/firmware_test.c $(HOST_MID_SOURCES) $(HOST_APP_SOU
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -g -fsanitize=address,undefined $(INCLUDES) $< $(HOST_MID_SOURCES) $(HOST_APP_SOURCES) -lm -o $@
 
 $(BUILD)/APP/app_scenario.o: $(BUILD)/generated/scenario.h
+
+.PHONY: expected
+expected: scenario
+	$(PYTHON) tools/scenario.py --input "$(SCENARIO)" --metadata $(BUILD)/export_metadata --output $(BUILD)/generated --horizon-ms "$(HORIZON_MS)"

@@ -3,11 +3,13 @@
 import argparse
 import csv
 import hashlib
+import heapq
 import json
 import math
 from pathlib import Path
 import re
 import subprocess
+import struct
 
 FIELDS = ['spn', 'start_ms', 'period_ms', 'duration_ms', 'pattern', 'value',
           'min', 'max', 'pattern_period_ms', 'step_count']
@@ -129,19 +131,140 @@ def compile_header(signals, identity):
     return '\n'.join(lines)
 
 
+def pgn_profiles(signals):
+    profiles = {}
+    for s in signals:
+        profile = profiles.setdefault(s['pgn'], {
+            'pgn': s['pgn'], 'can_id': s['can_id'], 'period_ms': s['period_ms'],
+            'first_start_ms': s['start_ms'], 'priority': s['priority'],
+            'source_address': s['source_address']})
+        profile['first_start_ms'] = min(profile['first_start_ms'], s['start_ms'])
+    return list(profiles.values())
+
+
+def dbc_text(signals):
+    def quoted(value):
+        return json.dumps(value, ensure_ascii=True)
+
+    lines = ['VERSION "CSV scenario v1"', '', 'NS_ :', '    CM_', '    BA_DEF_',
+             '    BA_', '    BA_DEF_DEF_', '', 'BS_:', '', 'BU_: STM32 Receiver', '']
+    for profile in pgn_profiles(signals):
+        identifier = profile['can_id'] | 0x80000000
+        lines.append(f'BO_ {identifier} PGN_{profile["pgn"]}: 8 STM32')
+        for s in signals:
+            if s['pgn'] != profile['pgn']:
+                continue
+            lines.append(f' SG_ SPN_{s["spn"]} : {s["start_bit"]}|{s["bits"]}@1+ '
+                         f'({s["resolution"]:.9g},{s["offset"]:.9g}) '
+                         f'[{s["min"]:.9g}|{s["max"]:.9g}] {quoted(s["unit"])} Receiver')
+        lines.append('')
+    lines.extend(['BA_DEF_ BO_ "VFrameFormat" ENUM "StandardCAN","ExtendedCAN";',
+                  'BA_DEF_DEF_ "VFrameFormat" 1;'])
+    for profile in pgn_profiles(signals):
+        lines.append(f'BA_ "VFrameFormat" BO_ {profile["can_id"] | 0x80000000} 1;')
+    for s in signals:
+        lines.append(f'CM_ SG_ {s["can_id"] | 0x80000000} SPN_{s["spn"]} {quoted(s["name"])};')
+    return '\n'.join(lines) + '\n'
+
+
+def active(s, time_ms):
+    return time_ms >= s['start_ms'] and (s['duration_ms'] == 0 or
+           time_ms - s['start_ms'] < s['duration_ms'])
+
+
+def physical_value(s, time_ms):
+    """Independent mathematical reference; no firmware encoder is called."""
+    if s['pattern'] == 'constant':
+        return s['value']
+    phase = ((time_ms - s['start_ms']) % s['pattern_period_ms']) / s['pattern_period_ms']
+    lo, hi = s['min_value'], s['max_value']
+    if s['pattern'] == 'ramp':
+        u = phase
+    elif s['pattern'] == 'sine':
+        u = (1 + math.sin(2 * math.pi * phase)) / 2
+    elif s['pattern'] == 'triangle':
+        u = 2 * phase if phase < 0.5 else 2 * (1 - phase)
+    elif s['pattern'] == 'square':
+        u = 1 if phase < 0.5 else 0
+    else:
+        u = min(int(phase * s['step_count']), s['step_count'] - 1) / (s['step_count'] - 1)
+    return lo + u * (hi - lo)
+
+
+def quantize(s, value):
+    # Model single-precision scaling and half-up rounding independently of C.
+    def f32(x):
+        return struct.unpack('f', struct.pack('f', x))[0]
+
+    value = f32(min(max(value, s['min']), s['max']))
+    raw_float = f32(f32(value - f32(s['offset'])) / f32(s['resolution']))
+    raw = min(int(f32(max(0, raw_float) + 0.5)), (1 << s['bits']) - 1)
+    return raw, raw * s['resolution'] + s['offset']
+
+
+def expected_rows(signals, horizon_ms):
+    profiles = {p['pgn']: p for p in pgn_profiles(signals)}
+    groups = {pgn: [s for s in signals if s['pgn'] == pgn] for pgn in profiles}
+    deadlines = [(p['first_start_ms'], p['pgn']) for p in profiles.values()]
+    heapq.heapify(deadlines)
+    while deadlines:
+        time_ms, pgn = heapq.heappop(deadlines)
+        if time_ms >= horizon_ms:
+            break
+        for s in groups[pgn]:
+            if not active(s, time_ms):
+                continue
+            value = physical_value(s, time_ms)
+            raw, quantized = quantize(s, value)
+            yield [time_ms, f'{s["can_id"]:08X}', pgn, s['spn'],
+                   format(value, '.12g'), raw, format(quantized, '.12g')]
+        # Finite PGNs need not enumerate slots after the last field expires.
+        next_ms = time_ms + profiles[pgn]['period_ms']
+        if any(s['duration_ms'] == 0 or next_ms < s['start_ms'] + s['duration_ms']
+               for s in groups[pgn]):
+            heapq.heappush(deadlines, (next_ms, pgn))
+
+
+def export_expected(path, signals, horizon_ms, identity):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix('.csv.tmp')
+    with temporary.open('w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['scenario_id', 't_ms', 'can_id', 'pgn', 'spn', 'requested_value',
+                         'expected_raw', 'quantized_value'])
+        writer.writerows([identity] + row for row in expected_rows(signals, horizon_ms))
+    temporary.replace(path)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', required=True, type=Path)
     parser.add_argument('--metadata', required=True, type=Path, help='host metadata executable')
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--horizon-ms', type=int, help='finite expected-value export horizon')
     args = parser.parse_args()
     try:
+        if args.horizon_ms is not None and not 1 <= args.horizon_ms <= MAX_TIME:
+            raise ValueError(f'horizon-ms must be in [1, {MAX_TIME}]')
         metadata = json.loads(subprocess.check_output([str(args.metadata.resolve())], text=True))
         signals = read_scenario(args.input, metadata)
         content = json.dumps(signals, sort_keys=True, separators=(',', ':'))
         identity = hashlib.sha256(content.encode()).hexdigest()[:16]
         manifest = {'schema_version': 1, 'scenario_id': identity,
-                    'input': str(args.input), 'signals': signals}
+                    'input': str(args.input), 'signals': signals, 'pgns': pgn_profiles(signals),
+                    'inactive_fields': 'all bits one; no numeric expectation',
+                    'time_origin': 'milliseconds since $RUN origin; ideal PGN deadlines',
+                    'expected_numeric_policy': 'mathematical waveform with float32 quantization; allow numeric margin at rounding boundaries'}
+        # Expected data from another scenario must never sit beside a new manifest.
+        expected_info = args.output / 'expected.json'
+        if expected_info.exists() and json.loads(expected_info.read_text()).get('scenario_id') != identity:
+            (args.output / 'expected.csv').unlink(missing_ok=True)
+            expected_info.unlink()
+        write_changed(args.output / 'scenario.dbc', dbc_text(signals))
+        if args.horizon_ms is not None:
+            export_expected(args.output / 'expected.csv', signals, args.horizon_ms, identity)
+            write_changed(expected_info, json.dumps({'scenario_id': identity,
+                          'horizon_ms': args.horizon_ms}, indent=2) + '\n')
         write_changed(args.output / 'scenario.h', compile_header(signals, identity))
         write_changed(args.output / 'scenario.json', json.dumps(manifest, indent=2) + '\n')
     except (ValueError, OSError, subprocess.CalledProcessError) as exc:
