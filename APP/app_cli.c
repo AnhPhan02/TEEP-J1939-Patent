@@ -141,7 +141,7 @@ static void prv_cmd_stop(void)
 {
     App_Gen_Stop();
     hal_console_write_line("[ACK] STOP OK - Transmission halted; no final zero frame.");
-    hal_console_write("[STATS] Total frames transmitted: ");
+    hal_console_write("[STATS] Total frames queued: ");
     hal_console_write_u32(App_Gen_Get_Frames_Sent());
     hal_console_write_line(NULL);
 }

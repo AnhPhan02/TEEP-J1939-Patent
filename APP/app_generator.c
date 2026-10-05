@@ -30,9 +30,9 @@ static uint32_t s_baud_kbps = APP_DEFAULT_CAN_BAUD_KBPS;
 static const char* prv_mode_name(J1939_Sched_Mode_t mode)
 {
     switch (mode) {
-        case J1939_SCHED_MODE_SAE:    return "SAE STANDARDS COMPLIANT";
-        case J1939_SCHED_MODE_STRESS: return "STRESS TESTING (100 Hz)";
-        default:                      return "HIGH-FIDELITY SMOOTH WAVEFORM (50 Hz)";
+        case J1939_SCHED_MODE_SAE:    return "SAE PGN DEFAULTS (explicit periods override)";
+        case J1939_SCHED_MODE_STRESS: return "STRESS PGN DEFAULTS (explicit periods override)";
+        default:                      return "SMOOTH PGN DEFAULTS (explicit periods override)";
     }
 }
 
@@ -112,7 +112,7 @@ static void prv_print_telemetry(void)
     }
 #endif
 
-    hal_console_write("[TX] Frames: ");
+    hal_console_write("[TX] Queued frames: ");
     hal_console_write_u32(s_total_frames_sent);
 
 #if APP_TELEMETRY_SHOW_SIGNALS
@@ -425,7 +425,7 @@ void App_Gen_Print_Status(void)
         hal_console_write_line(sig->def->unit);
     }
 
-    hal_console_write("Total Frames Sent: ");
+    hal_console_write("Total Frames Queued: ");
     hal_console_write_u32(s_total_frames_sent);
     hal_console_write_line(NULL);
     hal_console_write("TX Log: ");
@@ -444,7 +444,7 @@ void App_Gen_Process(uint32_t now_ms)
         App_Gen_Stop();
         hal_console_write_line(NULL);
         hal_console_write_line("[TEST] Target test duration elapsed. Transmission stopped; no final zero frame.");
-        hal_console_write("[STATS] Total frames sent: ");
+        hal_console_write("[STATS] Total frames queued: ");
         hal_console_write_u32(s_total_frames_sent);
         hal_console_write_line(NULL);
     }
