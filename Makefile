@@ -9,6 +9,9 @@
 
 TARGET      := j1939_generator
 BUILD       := build
+SCENARIO    ?= input/continuous_signals.csv
+PYTHON      ?= python3
+HOST_CC     ?= cc
 
 PREFIX      ?= arm-none-eabi-
 CC          := $(PREFIX)gcc
@@ -20,7 +23,7 @@ ST_LINK_CLI ?= "C:/Program Files (x86)/STMicroelectronics/STM32 ST-LINK Utility/
 LDSCRIPT    := STM32F103C8TX_FLASH.ld
 ASM_SOURCES := startup_stm32f103xb.s
 C_SOURCES   := $(wildcard OP/*.c) $(wildcard APP/*.c) $(wildcard MID/*.c) $(wildcard HAL/*.c)
-INCLUDES    := -IOP -IAPP -IMID -IHAL
+INCLUDES    := -IOP -IAPP -IMID -IHAL -I$(BUILD)/generated
 
 CPU         := -mcpu=cortex-m3 -mthumb -mfloat-abi=soft
 CFLAGS      := $(CPU) -std=gnu11 -Os -g3 -Wall -Wextra \
@@ -36,7 +39,7 @@ LDLIBS      := -lm
 OBJECTS     := $(addprefix $(BUILD)/,$(C_SOURCES:.c=.o)) \
                $(addprefix $(BUILD)/,$(ASM_SOURCES:.s=.o))
 
-.PHONY: all clean flash size
+.PHONY: all clean flash size scenario FORCE
 
 all: $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).hex $(BUILD)/$(TARGET).bin size
 
@@ -67,3 +70,15 @@ clean:
 	rm -rf $(BUILD)
 
 -include $(OBJECTS:.o=.d)
+
+# FORCE checks the selected path every invocation; unchanged output keeps its mtime.
+FORCE:
+
+$(BUILD)/export_metadata: tools/export_metadata.c MID/j1939_signal_definitions.c MID/j1939_pgn_timing.c $(wildcard MID/*.h)
+	@mkdir -p $(BUILD)
+	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -IMID $< MID/j1939_signal_definitions.c MID/j1939_pgn_timing.c -o $@
+
+$(BUILD)/generated/scenario.h: FORCE $(SCENARIO) tools/scenario.py $(BUILD)/export_metadata
+	$(PYTHON) tools/scenario.py --input "$(SCENARIO)" --metadata $(BUILD)/export_metadata --output $(BUILD)/generated
+
+scenario: $(BUILD)/generated/scenario.h

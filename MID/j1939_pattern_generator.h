@@ -45,6 +45,7 @@ typedef struct {
     float   initial_value;
     
     /* Timing & Parameters */
+    uint32_t waveform_period_ms;            /* Explicit CSV waveform period; 0 = legacy seconds */
     float   period_seconds;                 /* Primary period (sec) for Ramp, Sine, Step, Random */
     float   param1;                         /* User parameter / constant target */
     
@@ -68,8 +69,10 @@ typedef struct {
     
     /* Timeframe Scheduling */
     uint32_t timeframe_ms;                  /* Broadcast cycle timeframe in milliseconds (e.g., 10ms, 20ms, 50ms, 100ms) */
-    float    t_start_sec;                   /* Active window start time in seconds (0 = immediate) */
-    float    t_duration_sec;                /* Active window duration in seconds (0 = continuous) */
+    float    t_start_sec;                   /* Legacy serial API, removed in timing migration */
+    float    t_duration_sec;                /* Legacy serial API, removed in timing migration */
+    uint32_t start_ms;                   /* Active window start time in seconds (0 = immediate) */
+    uint32_t duration_ms;                /* Active window duration in seconds (0 = continuous) */
     
     /* Timing */
     uint32_t update_interval_ms;            /* How often to recalculate */

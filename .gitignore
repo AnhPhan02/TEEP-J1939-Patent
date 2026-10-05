@@ -5,3 +5,5 @@ build/
 *.bin
 *.map
 *.d
+
+__pycache__/
