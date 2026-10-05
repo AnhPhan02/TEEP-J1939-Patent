@@ -9,8 +9,9 @@ OP   op_main       main() + system lifecycle (clock -> board -> CAN -> app -> ru
      op_fault      Fault policy: leave CAN bus, LED on, debugger break or reset
      op_config.h   Watchdog, CAN self test, retry/supervision periods
       │
-APP  app_cli       Serial command parser: CONFIG START STOP CLEAR BAUD STATUS RESET
+APP  app_cli       Serial command parser: CONFIG SCENARIO START STOP CLEAR BAUD STATUS RESET
      app_generator Run state, modes, telemetry, LED, CAN diagnostics printing
+     app_scenario  Load and auto-start a compiled CSV signal configuration
      app_config.h  Application tunables (console baud, default CAN bitrate, ...)
       │
 MID  j1939_tx_scheduler       Groups SPNs into PGNs, broadcasts on period
@@ -79,7 +80,7 @@ RESET → SYSTEM_INIT → BOARD_INIT → COMM_INIT → APP_INIT → RUN
 4. **COMM_INIT**:
    - CAN self test in loopback + silent mode (does not touch the bus).
    - Join the bus: CAN clock gate, pin remap, bit timing, filter, normal mode.
-5. **APP_INIT**: load default signals and auto-start transmission.
+5. **APP_INIT**: load and auto-start the compiled CSV scenario (or remain idle on configuration failure).
 6. Start the watchdog.
 7. **RUN**: feed the watchdog, poll the CLI, run the generator, supervise the CAN error state. Bus-off recovery is automatic (ABOM=1).
 
@@ -93,7 +94,17 @@ make flash      # ST-LINK_CLI over SWD, verify, reset
 make clean
 ```
 
-Current footprint: Flash ≈ 39 KB / 64 KB, RAM ≈ 12 KB / 20 KB.
+Select a CSV at build time and export matching data for TSMaster:
+
+```sh
+make SCENARIO=input/continuous_signals.csv
+make expected HORIZON_MS=60000
+make test
+```
+
+See [CSV scenarios and hardware acceptance](docs/CSV_SCENARIOS.md) for the format, timing rules, controls, exports, and verification workflow. `make scenario` only needs Python and a host C compiler.
+
+Historical footprint before CSV scenarios: Flash ≈ 39 KB / 64 KB, RAM ≈ 12 KB / 20 KB. Recheck the linked build's reported usage for this version.
 
 ## Pending / next steps
 
@@ -102,9 +113,9 @@ Current footprint: Flash ≈ 39 KB / 64 KB, RAM ≈ 12 KB / 20 KB.
 | CAN RX interrupt + ring buffer, TX software queue (TMEIE) instead of 2 ms polling wait | Proposed |
 | Hardware-timer based TX scheduling (jitter) | Proposed |
 | Fault record kept across reset (`.noinit` RAM section) | Proposed |
-| J1939: fix `PGN_EEC2` (61442 → 61443), implement `t_start`/`t_dur` windows | Open |
+| CSV scenarios, EEC2 PGN correction, millisecond active windows | Implemented; physical capture acceptance pending |
 | J1939: Request PGN, Address Claim (J1939-81), TP BAM/CMDT (J1939-21), DM1 (J1939-73) | Missing |
-| Host unit tests + CI | Missing |
+| Host converter and sanitized firmware tests | `make test` implemented; CI pending |
 
 ## References
 

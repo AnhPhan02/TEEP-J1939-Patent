@@ -1,0 +1,5 @@
+spn,start_ms,period_ms,duration_ms,pattern,value,min,max,pattern_period_ms,step_count
+190,0,20,10000,constant,1500,,,,
+512,2000,20,5000,constant,25,,,,
+91,1000,50,8000,constant,40,,,,
+84,2000,100,8000,ramp,,0,60,8000,
