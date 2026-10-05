@@ -130,6 +130,10 @@ static void prv_cmd_start(char* args)
     } else if (mode == 2) {
         sched_mode = J1939_SCHED_MODE_STRESS;
     }
+    if (!J1939_Sched_Get_Tx_Log()) {
+        hal_console_write_line("[WARN] TXLOG is OFF; UART-to-TSMaster correlation will not be recorded.");
+        hal_console_write_line("[WARN] For validation: STOP, then TXLOG 1, then START 0 0.");
+    }
     App_Gen_Start(duration_sec, sched_mode);
 }
 

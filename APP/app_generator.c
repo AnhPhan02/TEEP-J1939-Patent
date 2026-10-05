@@ -108,10 +108,11 @@ static void prv_print_telemetry(void)
     if (count == 0u) {
         return;
     }
-#endif
 
     hal_console_write("[TX] Frames: ");
     hal_console_write_u32(s_total_frames_sent);
+
+#endif
 
 #if APP_TELEMETRY_SHOW_SIGNALS
     uint8_t display_count = (count <= 8u) ? count : 6u;
@@ -259,9 +260,19 @@ void App_Gen_Load_Defaults(void)
     Pattern_Generator_Init(hal_time_ms());
     J1939_Sched_Clear();
 
+    /*
+     * Deterministic single-frame validation preset:
+     *   PGN 61444 (EEC1), SPN 190 (Engine Speed) = 1500 rpm.
+     * Expected CAN ID  : 0x0CF00400
+     * Expected payload : FF FF FF E0 2E FF FF FF
+     *
+     * The pattern generator intentionally outputs 0 rpm during its common
+     * five-second startup lead-in, then holds 1500 rpm continuously.
+     */
+    // prv_add_default(SPN_ENGINE_SPEED, PATTERN_CONSTANT, 1500.0f, 1500.0f, 0.0f);
     prv_add_default(SPN_ENGINE_SPEED,    PATTERN_SINE, 800.0f, 3500.0f,  8.0f);
-    prv_add_default(SPN_ACCEL_PEDAL_POS, PATTERN_RAMP,   0.0f,  100.0f, 10.0f);
-    prv_add_default(SPN_VEHICLE_SPEED,   PATTERN_RAMP,   0.0f,  120.0f, 15.0f);
+    // prv_add_default(SPN_ACCEL_PEDAL_POS, PATTERN_RAMP,   0.0f,  100.0f, 10.0f);
+    // prv_add_default(SPN_VEHICLE_SPEED,   PATTERN_RAMP,   0.0f,  120.0f, 15.0f);
 }
 
 void App_Gen_Clear(void)

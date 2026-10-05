@@ -22,7 +22,7 @@ typedef enum {
     OP_STATE_SYSTEM_INIT,   /* Clock tree, FLASH wait states, SysTick */
     OP_STATE_BOARD_INIT,    /* LED, console, boot report */
     OP_STATE_COMM_INIT,     /* CAN self test, join the bus */
-    OP_STATE_APP_INIT,      /* J1939 generator defaults, auto start */
+    OP_STATE_APP_INIT,      /* Load J1939 defaults; CLI START controls transmission */
     OP_STATE_RUN,           /* Normal operation */
     OP_STATE_COMM_FAULT     /* CAN could not start - CLI alive, periodic retry */
 } OP_State_t;

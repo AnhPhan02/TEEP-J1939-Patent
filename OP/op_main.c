@@ -131,7 +131,7 @@ static bool prv_comm_init(void)
 }
 
 /* =============================================================================
- * 4. APP_INIT - generator defaults, auto start when CAN is up
+ * 4. APP_INIT - load defaults, then wait for an explicit CLI START
  * ============================================================================= */
 static void prv_app_init(bool can_ok)
 {
@@ -139,8 +139,13 @@ static void prv_app_init(bool can_ok)
     App_Gen_Load_Defaults();
 
     if (can_ok) {
+#if APP_AUTOSTART_ENABLE
         App_Gen_Start(0u, J1939_SCHED_MODE_SMOOTH);
-        hal_console_write_line("[READY] Auto-started default J1939 transmission (EEC1, EEC2, CCVS1).");
+        hal_console_write_line("[READY] Auto-started validation frame (EEC1 / SPN 190 = 1500 rpm).");
+#else
+        hal_console_write_line("[READY] CAN ready; generator is IDLE (no frames transmitted).");
+        hal_console_write_line("[READY] Start TSMaster capture, then send: TXLOG 1, followed by START 0 0");
+#endif
     } else {
         hal_console_write_line("[READY] CAN not available - CLI active, retrying bus join.");
     }
@@ -191,7 +196,11 @@ static void prv_comm_fault_step(uint32_t now_ms)
     s_last_can_retry_ms = now_ms;
 
     if (prv_can_join()) {
+#if APP_AUTOSTART_ENABLE
         App_Gen_Start(0u, J1939_SCHED_MODE_SMOOTH);
+#else
+        hal_console_write_line("[READY] CAN recovered; generator remains IDLE until CLI START.");
+#endif
         prv_enter(OP_STATE_RUN);
     }
 }
