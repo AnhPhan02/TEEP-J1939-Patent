@@ -21,7 +21,7 @@ extern "C" {
 
 /* Engine control */
 #define PGN_EEC1            61444u  /* 0xF004 Electronic Engine Controller 1   20 ms */
-#define PGN_EEC2            61442u  /* 0xF002 Electronic Engine Controller 2   50 ms */
+#define PGN_EEC2            61443u  /* 0xF003 Electronic Engine Controller 2   50 ms */
 #define PGN_ENGINE_TEMP1    65262u  /* 0xFEEE Engine Temperature 1           1000 ms */
 #define PGN_ENGINE_FLUIDS1  65263u  /* 0xFEEF Engine Fluid Level/Pressure     500 ms */
 #define PGN_ENGINE_FLUIDS2  65270u  /* 0xFEF6 Engine Fluids 2                 500 ms */
