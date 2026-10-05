@@ -114,6 +114,23 @@ static void test_shared_fields(void)
     assert(last_data[1] == 255 && last_data[2] == 50);
     tick(140);
     assert(frames == 3 && J1939_Sched_Is_Complete(140));
+    J1939_Sched_Stats_t stats;
+    J1939_Sched_Get_Stats(&stats);
+    assert(stats.missed_deadlines == 4); /* Shared active fields count one PGN slot. */
+}
+
+static void test_shared_unaligned_start(void)
+{
+    setup(0);
+    add(91, 0, 100, 20, 40);
+    add(92, 7, 40, 20, 50);
+    J1939_Sched_Reset_Timers(0);
+    tick(0); tick(7);
+    assert(frames == 1 && last_data[2] == 255);
+    tick(20);
+    assert(frames == 2 && last_data[2] == 50);
+    tick(47); /* Late attempt evaluates expiration at the actual attempt time. */
+    assert(frames == 3 && last_data[1] == 100 && last_data[2] == 255);
 }
 
 static void test_deadlines_and_errors(void)
@@ -154,12 +171,16 @@ static void test_wrap_and_long_run(void)
 {
     uint32_t origin = UINT32_MAX - 9u;
     setup(origin);
-    add(190, 0, 0, 20, 1500);
+    Pattern_Config_t cfg = { .spn = 190, .pattern_type = PATTERN_RAMP,
+                             .min_value = 0, .max_value = 100, .waveform_period_ms = 1000 };
+    assert(Pattern_Generator_Register(&cfg));
+    assert(J1939_Sched_Add_Signal(J1939_Find_Signal_By_SPN(190), 20, 0, 0, origin));
     J1939_Sched_Reset_Timers(origin);
     tick(origin); tick(10u); assert(frames == 2);
     /* Accumulated elapsed time remains correct across another full tick cycle. */
     tick(UINT32_MAX - 10u); tick(20u);
     assert(frames == 4);
+    assert(fabsf(Pattern_Generator_Get_Value(190, -1) - 32.6f) < 0.001f);
 }
 
 static void test_patterns(void)
@@ -229,7 +250,8 @@ static void test_application_and_cli(void)
 
 int main(void)
 {
-    test_active_windows(); test_shared_fields(); test_deadlines_and_errors();
+    test_active_windows(); test_shared_fields(); test_shared_unaligned_start();
+    test_deadlines_and_errors();
     test_inactive_gap(); test_wrap_and_long_run(); test_patterns();
     test_application_and_cli();
     puts("Firmware pattern/scheduler tests passed");

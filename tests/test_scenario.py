@@ -1,9 +1,11 @@
 import csv
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,6 +61,9 @@ class ScenarioTests(unittest.TestCase):
         self.assertEqual(len(self.load_rows(rows)), 2)
         with self.assertRaisesRegex(ValueError, 'capacity'):
             self.load_rows(rows, dict(self.metadata, max_signals=1))
+        separate = [[190, 0, 20, 0, 'constant', 1500, '', '', '', ''], rows[0]]
+        with self.assertRaisesRegex(ValueError, 'capacity'):
+            self.load_rows(separate, dict(self.metadata, max_pgns=1))
         with self.assertRaisesRegex(ValueError, 'horizon'):
             self.load_rows([[190, scenario.MAX_TIME, 20, 1, 'constant', 1500, '', '', '', '']])
 
@@ -132,6 +137,49 @@ class ScenarioTests(unittest.TestCase):
             result = subprocess.run(changed + ['--horizon-ms', '0'], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('horizon-ms', result.stderr)
+
+
+    def test_build_switch_with_timestamp_collision(self):
+        # Exercise the actual Make graph without pretending compiler stubs test C.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            build = root / 'build'
+            compiler = root / 'compiler.py'
+            compiler.write_text("""from pathlib import Path
+import sys
+args = sys.argv[1:]
+if '-o' in args:
+    target = Path(args[args.index('-o') + 1])
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if any(a.endswith('app_scenario.c') for a in args):
+        data = (target.parent.parent / 'generated/scenario.h').read_bytes()
+    elif target.suffix == '.elf':
+        data = (target.parent / 'APP/app_scenario.o').read_bytes()
+    else:
+        data = b'object'
+    target.write_bytes(data)
+else:
+    Path(args[-1]).write_bytes(Path(args[-2]).read_bytes())
+""")
+            command = ['make', 'all', f'BUILD={build}',
+                       f'CC={sys.executable} {compiler}',
+                       f'OBJCOPY={sys.executable} {compiler}', 'SIZE=true']
+            subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True)
+            old = (build / 'j1939_generator.bin').read_bytes()
+            # Future artifact times simulate dependencies that appear unchanged to
+            # a coarse filesystem clock. Selected scenario data must still win.
+            future = time.time() + 10
+            for path in build.rglob('*'):
+                if path.is_file():
+                    os.utime(path, (future, future))
+            alternative = root / 'alternative.csv'
+            alternative.write_text(','.join(scenario.FIELDS) + '\n190,0,20,0,constant,1600,,,,\n')
+            subprocess.run(command + [f'SCENARIO={alternative}'], cwd=ROOT,
+                           check=True, capture_output=True, text=True)
+            new = (build / 'generated/scenario.h').read_bytes()
+            self.assertNotEqual(old, new)
+            for suffix in ('elf', 'hex', 'bin'):
+                self.assertEqual((build / f'j1939_generator.{suffix}').read_bytes(), new)
 
 
 

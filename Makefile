@@ -51,13 +51,13 @@ $(BUILD)/%.o: %.s
 	@mkdir -p $(dir $@)
 	$(CC) $(ASFLAGS) -c $< -o $@
 
-$(BUILD)/$(TARGET).elf: $(OBJECTS) $(LDSCRIPT)
+$(BUILD)/$(TARGET).elf: $(OBJECTS) $(LDSCRIPT) FORCE
 	$(CC) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $@
 
-$(BUILD)/$(TARGET).hex: $(BUILD)/$(TARGET).elf
+$(BUILD)/$(TARGET).hex: $(BUILD)/$(TARGET).elf FORCE
 	$(OBJCOPY) -O ihex $< $@
 
-$(BUILD)/$(TARGET).bin: $(BUILD)/$(TARGET).elf
+$(BUILD)/$(TARGET).bin: $(BUILD)/$(TARGET).elf FORCE
 	$(OBJCOPY) -O binary -S $< $@
 
 size: $(BUILD)/$(TARGET).elf
@@ -90,11 +90,13 @@ test: $(BUILD)/firmware_test
 	$(BUILD)/firmware_test
 
 HOST_APP_SOURCES := APP/app_generator.c APP/app_scenario.c APP/app_cli.c
-$(BUILD)/firmware_test: tests/firmware_test.c $(HOST_MID_SOURCES) $(HOST_APP_SOURCES) $(wildcard MID/*.h) $(wildcard APP/*.h) $(BUILD)/generated/scenario.h
+$(BUILD)/firmware_test: tests/firmware_test.c $(HOST_MID_SOURCES) $(HOST_APP_SOURCES) $(wildcard MID/*.h) $(wildcard APP/*.h) $(wildcard HAL/*.h) $(BUILD)/generated/scenario.h FORCE
 	@mkdir -p $(BUILD)
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -g -fsanitize=address,undefined $(INCLUDES) $< $(HOST_MID_SOURCES) $(HOST_APP_SOURCES) -lm -o $@
 
-$(BUILD)/APP/app_scenario.o: $(BUILD)/generated/scenario.h
+# Some supported Make versions compare only whole seconds. Force this small
+# translation unit and final artifacts so rapid CSV switches cannot reuse old data.
+$(BUILD)/APP/app_scenario.o: $(BUILD)/generated/scenario.h FORCE
 
 .PHONY: expected
 expected: scenario
