@@ -9,6 +9,7 @@
 #include "app_config.h"
 #include "app_cli.h"
 #include "app_generator.h"
+#include "app_scenario.h"
 #include "j1939_link.h"
 #include "hal_system.h"
 #include "hal_time.h"
@@ -131,16 +132,16 @@ static bool prv_comm_init(void)
 }
 
 /* =============================================================================
- * 4. APP_INIT - generator defaults, auto start when CAN is up
+ * 4. APP_INIT - compiled scenario, auto start when CAN is up
  * ============================================================================= */
 static void prv_app_init(bool can_ok)
 {
     App_Gen_Init(APP_DEFAULT_CAN_BAUD_KBPS);
-    App_Gen_Load_Defaults();
 
     if (can_ok) {
-        App_Gen_Start(0u, J1939_SCHED_MODE_SMOOTH);
-        hal_console_write_line("[READY] Auto-started default J1939 transmission (EEC1, EEC2, CCVS1).");
+        bool started = App_Scenario_Start();
+        hal_console_write_line(started ? "[READY] Compiled CSV scenario started."
+                                      : "[READY] Scenario invalid; CLI active, generator idle.");
     } else {
         hal_console_write_line("[READY] CAN not available - CLI active, retrying bus join.");
     }
@@ -191,7 +192,7 @@ static void prv_comm_fault_step(uint32_t now_ms)
     s_last_can_retry_ms = now_ms;
 
     if (prv_can_join()) {
-        App_Gen_Start(0u, J1939_SCHED_MODE_SMOOTH);
+        (void)App_Scenario_Start();
         prv_enter(OP_STATE_RUN);
     }
 }
@@ -221,12 +222,12 @@ int main(void)
     prv_enter(can_ok ? OP_STATE_RUN : OP_STATE_COMM_FAULT);
 
     for (;;) {
-        uint32_t now = hal_time_ms();
-
 #if OP_WATCHDOG_ENABLE
         hal_watchdog_feed();
 #endif
         App_Cli_Poll();
+        /* CLI START may reset the origin; never process it using an older tick. */
+        uint32_t now = hal_time_ms();
 
         if (s_state == OP_STATE_RUN) {
             App_Gen_Process(now);

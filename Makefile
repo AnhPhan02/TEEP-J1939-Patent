@@ -89,6 +89,9 @@ test: $(BUILD)/firmware_test
 	$(PYTHON) -m unittest discover -s tests -v
 	$(BUILD)/firmware_test
 
-$(BUILD)/firmware_test: tests/firmware_test.c $(HOST_MID_SOURCES) $(wildcard MID/*.h)
+HOST_APP_SOURCES := APP/app_generator.c APP/app_scenario.c APP/app_cli.c
+$(BUILD)/firmware_test: tests/firmware_test.c $(HOST_MID_SOURCES) $(HOST_APP_SOURCES) $(wildcard MID/*.h) $(wildcard APP/*.h) $(BUILD)/generated/scenario.h
 	@mkdir -p $(BUILD)
-	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -g -fsanitize=address,undefined $(INCLUDES) $< $(HOST_MID_SOURCES) -lm -o $@
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -g -fsanitize=address,undefined $(INCLUDES) $< $(HOST_MID_SOURCES) $(HOST_APP_SOURCES) -lm -o $@
+
+$(BUILD)/APP/app_scenario.o: $(BUILD)/generated/scenario.h

@@ -13,7 +13,9 @@
 #include "hal_led.h"
 #include <stddef.h>
 #include <string.h>
+#include <math.h>
 
+static const char* s_identity = "manual";
 static bool     s_is_running = false;
 static uint32_t s_test_start_ms = 0u;
 static uint32_t s_test_duration_ms = 0u;    /* 0 = continuous */
@@ -187,6 +189,10 @@ uint32_t App_Gen_Get_Baud(void)
 App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
                                           const J1939_Signal_Definition_t** out_def)
 {
+    if (req == NULL || !isfinite(req->t_start) || !isfinite(req->t_dur) ||
+        req->t_start < 0.0f || req->t_dur < 0.0f ||
+        (double)req->t_start + req->t_dur > 2147483.0 || !isfinite(req->param1) ||
+        fabsf(req->param1) > 2147483.0f) return APP_CFG_INVALID;
     const J1939_Signal_Definition_t* def = J1939_Find_Signal_By_SPN(req->spn);
     if (out_def != NULL) {
         *out_def = def;
@@ -223,6 +229,7 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
             break;
 
         case PATTERN_STEP:
+            cfg.param1 = 8.0f; /* Legacy CONFIG has no separate step-count argument. */
             cfg.step_size = (req->max_value - req->min_value) / 8.0f;
             cfg.step_interval_ms = (uint32_t)(period * 1000.0f / 16.0f);
             cfg.initial_value = req->min_value;
@@ -245,13 +252,35 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
             break;
     }
 
-    if (!Pattern_Generator_Register(&cfg)) {
-        return APP_CFG_TABLE_FULL;
-    }
-    if (!J1939_Sched_Add_Signal(def, req->timeframe_ms, cfg.start_ms, cfg.duration_ms, hal_time_ms())) {
-        return APP_CFG_TABLE_FULL;
-    }
+    return App_Gen_Config_Pattern(&cfg, out_def);
+}
+
+App_Config_Status_t App_Gen_Config_Pattern(const Pattern_Config_t* cfg,
+                                           const J1939_Signal_Definition_t** out_def)
+{
+    if (cfg == NULL) return APP_CFG_INVALID;
+    const J1939_Signal_Definition_t* def = J1939_Find_Signal_By_SPN(cfg->spn);
+    if (out_def) *out_def = def;
+    if (!def) return APP_CFG_UNKNOWN_SPN;
+    if (!isfinite(cfg->min_value) || !isfinite(cfg->max_value) || !isfinite(cfg->param1) ||
+        cfg->pattern_type < PATTERN_CONSTANT || cfg->pattern_type > PATTERN_STATE_SEQUENCE ||
+        cfg->min_value < def->min_physical || cfg->max_value > def->max_physical ||
+        cfg->min_value > cfg->max_value ||
+        (uint64_t)cfg->start_ms + cfg->duration_ms > INT32_MAX ||
+        cfg->timeframe_ms > INT32_MAX || cfg->waveform_period_ms > INT32_MAX)
+        return APP_CFG_INVALID;
+
+    /* Changes pause the run: a subsequent START gives all fields a common origin. */
+    App_Gen_Stop();
+    s_identity = "manual";
+    if (!J1939_Sched_Add_Signal(def, cfg->timeframe_ms, cfg->start_ms, cfg->duration_ms, hal_time_ms()) ||
+        !Pattern_Generator_Register(cfg)) return APP_CFG_TABLE_FULL;
     return APP_CFG_OK;
+}
+
+void App_Gen_Set_Identity(const char* identity)
+{
+    s_identity = identity ? identity : "manual";
 }
 
 void App_Gen_Load_Defaults(void)
@@ -266,13 +295,20 @@ void App_Gen_Load_Defaults(void)
 
 void App_Gen_Clear(void)
 {
+    App_Gen_Stop();
     Pattern_Generator_Init(hal_time_ms());
     J1939_Sched_Clear();
+    s_identity = "manual";
     s_is_running = false;
 }
 
 void App_Gen_Start(uint32_t duration_sec, J1939_Sched_Mode_t mode)
 {
+    if (J1939_Sched_Get_Signal_Count() == 0u || duration_sec > UINT32_MAX / 1000u) {
+        hal_console_write_line("[ERR] START requires signals and a supported duration.");
+        return;
+    }
+    App_Gen_Stop();
     uint32_t now = hal_time_ms();
 
     J1939_Sched_Set_Mode(mode);
@@ -282,7 +318,15 @@ void App_Gen_Start(uint32_t duration_sec, J1939_Sched_Mode_t mode)
     s_test_start_ms = now;
     s_test_duration_ms = duration_sec * 1000u;
     s_total_frames_sent = 0u;
+    s_last_telemetry_ms = now;
+    s_last_can_warn_ms = now;
     s_is_running = true;
+
+    hal_console_write("[SCENARIO] Identity: ");
+    hal_console_write(s_identity);
+    hal_console_write(" | Origin ms: ");
+    hal_console_write_u32(now);
+    hal_console_write_line(NULL);
 
     /* Machine-readable run marker: waveform time t = now_ms - t0_ms */
     hal_console_write("$RUN,");
@@ -311,6 +355,18 @@ void App_Gen_Start(uint32_t duration_sec, J1939_Sched_Mode_t mode)
     hal_console_write_line("=========================================");
 }
 
+static void prv_print_run_stats(void)
+{
+    J1939_Sched_Stats_t stats;
+    J1939_Sched_Get_Stats(&stats);
+    hal_console_write("[STATS] Queued: "); hal_console_write_u32(stats.queued);
+    hal_console_write(" | Busy: "); hal_console_write_u32(stats.busy);
+    hal_console_write(" | Error: "); hal_console_write_u32(stats.failed);
+    hal_console_write(" | Missed deadlines: "); hal_console_write_u32(stats.missed_deadlines);
+    hal_console_write(" | UART log drops: "); hal_console_write_u32(J1939_Sched_Get_Tx_Log_Dropped());
+    hal_console_write_line(NULL);
+}
+
 void App_Gen_Stop(void)
 {
     if (s_is_running) {
@@ -319,6 +375,7 @@ void App_Gen_Stop(void)
         hal_console_write(",");
         hal_console_write_u32(J1939_Sched_Get_Tx_Seq());
         hal_console_write_line(NULL);
+        prv_print_run_stats();
     }
     s_is_running = false;
     Pattern_Generator_Stop();
@@ -339,6 +396,8 @@ void App_Gen_Print_Status(void)
     uint8_t count = J1939_Sched_Get_Signal_Count();
 
     hal_console_write_line("----------------- STATUS -----------------");
+    hal_console_write("Scenario: "); hal_console_write_line(s_identity);
+    prv_print_run_stats();
     hal_console_write("Running: ");
     hal_console_write_line(s_is_running ? "YES" : "NO (IDLE)");
     hal_console_write("Mode: ");
@@ -384,7 +443,7 @@ void App_Gen_Process(uint32_t now_ms)
         (now_ms - s_test_start_ms >= s_test_duration_ms)) {
         App_Gen_Stop();
         hal_console_write_line(NULL);
-        hal_console_write_line("[TEST] Target test duration elapsed. Transmission completed (signals at 0).");
+        hal_console_write_line("[TEST] Target test duration elapsed. Transmission stopped; no final zero frame.");
         hal_console_write("[STATS] Total frames sent: ");
         hal_console_write_u32(s_total_frames_sent);
         hal_console_write_line(NULL);
@@ -401,6 +460,11 @@ void App_Gen_Process(uint32_t now_ms)
     J1939_Sched_Tick_Result_t tick;
     J1939_Sched_Tick(now_ms, &tick);
     s_total_frames_sent += tick.sent;
+    if (J1939_Sched_Is_Complete(now_ms)) {
+        App_Gen_Stop();
+        hal_console_write_line("[TEST] All signal windows completed.");
+        return;
+    }
 
     if (tick.busy > 0u && (now_ms - s_last_can_warn_ms > APP_CAN_WARN_PERIOD_MS)) {
         s_last_can_warn_ms = now_ms;

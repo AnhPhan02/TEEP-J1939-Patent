@@ -3,11 +3,18 @@
 #include "j1939_encode_decode.h"
 #include "j1939_link.h"
 #include "hal_console.h"
+#include "app_generator.h"
+#include "app_scenario.h"
+#include "app_cli.h"
+#include "scenario.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
+static uint32_t clock_ms;
+static const char *serial_input = "";
+static char console[32768];
 static unsigned frames;
 static uint8_t last_data[8];
 static uint32_t last_id;
@@ -25,12 +32,32 @@ J1939_Link_Status_t J1939_Link_Send(uint32_t pgn, const uint8_t *data, uint8_t l
     frames++;
     return send_status;
 }
-void hal_console_write(const char *s) { (void)s; }
-void hal_console_write_line(const char *s) { (void)s; }
+void hal_console_write(const char *s)
+{
+    if (s) {
+        assert(strlen(console) + strlen(s) < sizeof(console));
+        strcat(console, s);
+    }
+}
+void hal_console_write_line(const char *s) { hal_console_write(s); hal_console_write("\n"); }
+void hal_console_write_u32(uint32_t value) { char s[32]; snprintf(s, sizeof(s), "%u", value); hal_console_write(s); }
+void hal_console_write_i32(int32_t value) { char s[32]; snprintf(s, sizeof(s), "%d", value); hal_console_write(s); }
+void hal_console_write_hex(uint32_t value) { char s[32]; snprintf(s, sizeof(s), "%x", value); hal_console_write(s); }
+void hal_console_write_float(float value, uint8_t decimals) { (void)decimals; char s[32]; snprintf(s, sizeof(s), "%.3f", (double)value); hal_console_write(s); }
+int hal_console_read(void) { return *serial_input ? (unsigned char)*serial_input++ : -1; }
+uint32_t hal_time_ms(void) { return clock_ms; }
+void hal_led_set(bool on) { (void)on; }
+bool J1939_Link_Init(uint32_t baud) { (void)baud; return true; }
+void J1939_Link_Get_Bit_Timing(J1939_Link_Bit_Timing_t *out) { memset(out, 0, sizeof(*out)); }
+void J1939_Link_Get_Bus_Error(J1939_Link_Bus_Error_t *out) { memset(out, 0, sizeof(*out)); }
+void J1939_Link_Diagnose(J1939_Link_Diag_t *out) { memset(out, 0, sizeof(*out)); }
 uint16_t hal_console_tx_free(void) { return uart_free; }
 
 static void setup(uint32_t origin)
 {
+    App_Gen_Clear();
+    console[0] = 0;
+    clock_ms = origin;
     Pattern_Generator_Init(origin);
     J1939_Sched_Clear();
     J1939_Sched_Set_Tx_Log(false);
@@ -155,10 +182,56 @@ static void test_patterns(void)
     }
 }
 
+static void test_application_and_cli(void)
+{
+    setup(100);
+    App_Gen_Init(250);
+    Pattern_Config_t cfg = { .spn = 190, .pattern_type = PATTERN_CONSTANT,
+                             .min_value = 1500, .max_value = 1500, .param1 = 1500,
+                             .start_ms = 7, .duration_ms = 40, .timeframe_ms = 20 };
+    assert(App_Gen_Config_Pattern(&cfg, NULL) == APP_CFG_OK);
+    App_Gen_Start(0, J1939_SCHED_MODE_SMOOTH);
+    App_Gen_Process(106); assert(frames == 0);
+    App_Gen_Process(107); assert(frames == 1);
+    App_Gen_Process(127); assert(frames == 2);
+    clock_ms = 147;
+    App_Gen_Process(clock_ms);
+    assert(!App_Gen_Is_Running() && frames == 2);
+    assert(strstr(console, "$END,147,") && strstr(console, "Queued: 2"));
+    serial_input = "SCENARIO\n";
+    App_Cli_Poll();
+    assert(App_Gen_Is_Running());
+    assert(J1939_Sched_Get_Signal_Count() == sizeof(k_scenario_signals) / sizeof(k_scenario_signals[0]));
+    assert(strstr(console, k_scenario_id));
+    serial_input = "STOP\n";
+    App_Cli_Poll();
+    unsigned stopped_frames = frames;
+    App_Gen_Process(200);
+    assert(!App_Gen_Is_Running() && frames == stopped_frames);
+    clock_ms = 200;
+    serial_input = "START\n";
+    App_Cli_Poll();
+    assert(App_Gen_Is_Running());
+    App_Gen_Clear();
+    App_Gen_Start(0, J1939_SCHED_MODE_SMOOTH);
+    assert(!App_Gen_Is_Running());
+
+    /* Legacy CONFIG keeps its seconds-based wire syntax, including fractions. */
+    serial_input = "CONFIG 190 0 0 3000 1500 20 0.007 0.040\n";
+    App_Cli_Poll();
+    const J1939_Sched_Signal_t *sig = J1939_Sched_Get_Signal(0);
+    assert(sig && sig->start_ms == 7 && sig->duration_ms == 40);
+    App_Signal_Request_t bad = { .spn = 190, .t_start = NAN };
+    assert(App_Gen_Config_Signal(&bad, NULL) == APP_CFG_INVALID);
+    cfg.max_value = NAN;
+    assert(App_Gen_Config_Pattern(&cfg, NULL) == APP_CFG_INVALID);
+}
+
 int main(void)
 {
     test_active_windows(); test_shared_fields(); test_deadlines_and_errors();
     test_inactive_gap(); test_wrap_and_long_run(); test_patterns();
+    test_application_and_cli();
     puts("Firmware pattern/scheduler tests passed");
     return 0;
 }

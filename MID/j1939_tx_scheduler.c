@@ -29,6 +29,9 @@ static uint8_t              s_pgn_count = 0u;
 static uint32_t s_last_time_ms;
 static uint64_t s_elapsed_ms;
 static J1939_Sched_Stats_t s_stats;
+static bool s_tx_log_enabled = false;
+static uint32_t s_tx_seq = 0u;
+static uint32_t s_tx_log_dropped = 0u;
 
 static J1939_Sched_Mode_t   s_mode = J1939_SCHED_MODE_SMOOTH;
 
@@ -161,6 +164,7 @@ void J1939_Sched_Reset_Timers(uint32_t now_ms)
 {
     s_last_time_ms = now_ms;
     s_elapsed_ms = 0u;
+    s_tx_log_dropped = 0u;
     memset(&s_stats, 0, sizeof(s_stats));
     for (uint8_t i = 0; i < s_pgn_count; i++) {
         Sched_PGN_Entry_t* entry = &s_pgns[i];
@@ -183,10 +187,6 @@ void J1939_Sched_Reset_Timers(uint32_t now_ms)
  * lines (TX buffer full), not that the frame was lost on the bus. The line is
  * skipped instead of blocking when the UART cannot keep up.
  * ============================================================================= */
-static bool     s_tx_log_enabled = false;
-static uint32_t s_tx_seq = 0u;
-static uint32_t s_tx_log_dropped = 0u;
-
 static char* prv_put_hex(char* p, uint32_t value, uint8_t digits)
 {
     static const char k_hex[] = "0123456789ABCDEF";

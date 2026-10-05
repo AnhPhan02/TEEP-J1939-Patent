@@ -8,6 +8,7 @@
 #include "app_cli.h"
 #include "app_config.h"
 #include "app_generator.h"
+#include "app_scenario.h"
 #include "j1939_link.h"
 #include "hal_console.h"
 #include <stddef.h>
@@ -70,6 +71,9 @@ static void prv_cmd_config(char* args)
             hal_console_write("[ERR] SPN ");
             hal_console_write_u32(req.spn);
             hal_console_write_line(" not found in J1939 signal database!");
+            return;
+        case APP_CFG_INVALID:
+            hal_console_write_line("[ERR] Invalid signal range, pattern, or timing.");
             return;
         case APP_CFG_TABLE_FULL:
             hal_console_write_line("[ERR] Failed to register pattern (maximum signals reached).");
@@ -136,7 +140,7 @@ static void prv_cmd_start(char* args)
 static void prv_cmd_stop(void)
 {
     App_Gen_Stop();
-    hal_console_write_line("[ACK] STOP OK - Transmission halted (all signals returned to 0).");
+    hal_console_write_line("[ACK] STOP OK - Transmission halted; no final zero frame.");
     hal_console_write("[STATS] Total frames transmitted: ");
     hal_console_write_u32(App_Gen_Get_Frames_Sent());
     hal_console_write_line(NULL);
@@ -268,6 +272,8 @@ static void prv_process_line(char* line)
 
     if (strcasecmp(line, "CONFIG") == 0) {
         prv_cmd_config(args);
+    } else if (strcasecmp(line, "SCENARIO") == 0) {
+        (void)App_Scenario_Start();
     } else if (strcasecmp(line, "START") == 0) {
         prv_cmd_start(args);
     } else if (strcasecmp(line, "STOP") == 0) {
@@ -288,7 +294,7 @@ static void prv_process_line(char* line)
     } else {
         hal_console_write("[ERR] Unknown command '");
         hal_console_write(line);
-        hal_console_write_line("'. Available: CONFIG, START, STOP, CLEAR, BAUD, STATUS, RESET, CANTEST, TXLOG");
+        hal_console_write_line("'. Available: CONFIG, SCENARIO, START, STOP, CLEAR, BAUD, STATUS, RESET, CANTEST, TXLOG");
     }
 }
 

@@ -33,7 +33,8 @@ typedef struct {
 typedef enum {
     APP_CFG_OK = 0,
     APP_CFG_UNKNOWN_SPN,
-    APP_CFG_TABLE_FULL
+    APP_CFG_TABLE_FULL,
+    APP_CFG_INVALID
 } App_Config_Status_t;
 
 void App_Gen_Init(uint32_t baud_kbps);
@@ -42,6 +43,10 @@ uint32_t App_Gen_Get_Baud(void);
 
 App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
                                           const J1939_Signal_Definition_t** out_def);
+App_Config_Status_t App_Gen_Config_Pattern(const Pattern_Config_t* cfg,
+                                           const J1939_Signal_Definition_t** out_def);
+/* The identity string must remain valid for the life of the configuration. */
+void App_Gen_Set_Identity(const char* identity);
 void App_Gen_Load_Defaults(void);
 void App_Gen_Clear(void);
 
