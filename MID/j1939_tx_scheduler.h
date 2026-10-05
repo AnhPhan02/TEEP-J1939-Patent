@@ -32,8 +32,8 @@ typedef struct {
     uint32_t pgn;
     const J1939_Signal_Definition_t* def;
     uint32_t timeframe_ms;          /* 0 = use PGN period of current mode */
-    float    t_start;
-    float    t_dur;
+    uint32_t start_ms;
+    uint32_t duration_ms;
 } J1939_Sched_Signal_t;
 
 typedef struct {
@@ -62,6 +62,16 @@ typedef struct {
 
 extern volatile J1939_Debug_Watch_t g_j1939_dbg;
 
+typedef struct {
+    uint32_t queued;
+    uint32_t busy;
+    uint32_t failed;
+    uint32_t missed_deadlines;       /* Active scheduled slots skipped, saturating */
+} J1939_Sched_Stats_t;
+
+void J1939_Sched_Get_Stats(J1939_Sched_Stats_t* stats);
+bool J1939_Sched_Is_Complete(uint32_t now_ms);
+
 /* Remove all signals and PGNs */
 void J1939_Sched_Clear(void);
 
@@ -69,8 +79,8 @@ void J1939_Sched_Clear(void);
  * A non-zero timeframe_ms overrides the PGN period if it is faster. */
 bool J1939_Sched_Add_Signal(const J1939_Signal_Definition_t* def,
                             uint32_t timeframe_ms,
-                            float t_start,
-                            float t_dur,
+                            uint32_t start_ms,
+                            uint32_t duration_ms,
                             uint32_t now_ms);
 
 void J1939_Sched_Set_Mode(J1939_Sched_Mode_t mode);

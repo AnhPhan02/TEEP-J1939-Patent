@@ -26,7 +26,8 @@ typedef struct {
 
 static Pattern_State_t  g_patterns[PATTERN_GEN_MAX_SIGNALS];
 static uint8_t          g_pattern_count = 0u;
-static uint32_t         g_sim_start_ms = 0u;
+static uint32_t g_last_time_ms = 0u;
+static uint64_t g_elapsed_ms = 0u;
 static bool             g_is_running = true;
 
 /* =============================================================================
@@ -65,26 +66,25 @@ static float prv_compute_next_value(Pattern_State_t* state, uint32_t current_tim
     }
 
     const Pattern_Config_t* cfg = &state->config;
-    uint32_t elapsed_ms = current_time_ms - g_sim_start_ms;
-    float elapsed_sec = (float)elapsed_ms / 1000.0f;
-    float range = cfg->max_value - cfg->min_value;
-    
-    /* 5-second startup lead-in: 0.0 constant for first 5s before active pattern starts */
-    const float STARTUP_SEC = 5.0f;
-
-    if (elapsed_sec < STARTUP_SEC) {
-        /* Pure 0.0 constant during startup lead-in phase */
-        return 0.0f;
+    /* Accumulate unsigned tick differences so long continuous runs survive wrap. */
+    uint64_t elapsed_ms = g_elapsed_ms + (uint32_t)(current_time_ms - g_last_time_ms);
+    if (elapsed_ms < cfg->start_ms ||
+        (cfg->duration_ms > 0u && elapsed_ms - cfg->start_ms >= cfg->duration_ms)) {
+        return 0.0f; /* Scheduler leaves inactive fields unassigned instead of encoding this. */
     }
+    uint64_t active_ms = elapsed_ms - cfg->start_ms;
+    float range = cfg->max_value - cfg->min_value;
+    float seconds = cfg->period_seconds > 0.0f ? cfg->period_seconds :
+                    (cfg->ramp_period_seconds > 0.0f ? cfg->ramp_period_seconds :
+                    (cfg->sine_period_seconds > 0.0f ? cfg->sine_period_seconds : 10.0f));
+    uint32_t period_ms = cfg->waveform_period_ms;
+    if (period_ms == 0u) {
+        period_ms = seconds >= 2147483.0f ? 2147483000u : (uint32_t)(seconds * 1000.0f);
+        if (period_ms == 0u) period_ms = 1u;
+    }
+    /* Reduce integer time before converting to float to preserve phase precision. */
+    float phase = (float)(active_ms % period_ms) / (float)period_ms;
 
-    /* Active waveform execution time (continuous infinite loop mode) */
-    float t_active = elapsed_sec - STARTUP_SEC;
-    
-    /* Determine waveform period */
-    float period = (cfg->period_seconds > 0.1f) ? cfg->period_seconds : 
-                   ((cfg->ramp_period_seconds > 0.1f) ? cfg->ramp_period_seconds : 
-                   ((cfg->sine_period_seconds > 0.1f) ? cfg->sine_period_seconds : 10.0f));
-    
     switch (cfg->pattern_type) {
         
         case PATTERN_CONSTANT:
@@ -96,24 +96,19 @@ static float prv_compute_next_value(Pattern_State_t* state, uint32_t current_tim
             
         case PATTERN_RAMP: {
             /* Pure linear sawtooth sweep: sweeps from min to max linearly, then loops */
-            float phase = fmodf(t_active, period) / period;
-            if (phase < 0.0f) phase += 1.0f;
             return cfg->min_value + phase * range;
         }
         
         case PATTERN_SINE: {
             /* Continuous smooth harmonic sinusoidal wave oscillating between min and max */
-            float phase = 2.0f * M_PI * fmodf(t_active, period) / period;
             float center = (cfg->max_value + cfg->min_value) * 0.5f;
             float amplitude = range * 0.5f;
-            float val = center + amplitude * sinf(phase);
+            float val = center + amplitude * sinf(2.0f * M_PI * phase);
             return prv_clamp(val, cfg->min_value, cfg->max_value);
         }
 
         case PATTERN_TRIANGLE: {
             /* Symmetric linear triangle sweep: sweeps min -> max -> min */
-            float phase = fmodf(t_active, period) / period;
-            if (phase < 0.0f) phase += 1.0f;
             float u = (phase < 0.5f) ? (phase * 2.0f) : (2.0f * (1.0f - phase));
             return cfg->min_value + u * range;
         }
@@ -121,8 +116,6 @@ static float prv_compute_next_value(Pattern_State_t* state, uint32_t current_tim
         case PATTERN_STEP: {
             /* Discrete staircase climbing min -> max through N distinct horizontal plateaus */
             int num_steps = (cfg->param1 >= 2.0f && cfg->param1 <= 50.0f) ? (int)cfg->param1 : 8;
-            float phase = fmodf(t_active, period) / period;
-            if (phase < 0.0f) phase += 1.0f;
             int step_idx = (int)(phase * (float)num_steps);
             if (step_idx >= num_steps) step_idx = num_steps - 1;
             float step_u = (float)step_idx / (float)(num_steps - 1);
@@ -131,8 +124,6 @@ static float prv_compute_next_value(Pattern_State_t* state, uint32_t current_tim
 
         case PATTERN_SQUARE: {
             /* Clean rectangular square wave: HIGH for first 50%, LOW for second 50% */
-            float phase = fmodf(t_active, period) / period;
-            if (phase < 0.0f) phase += 1.0f;
             return (phase < 0.5f) ? cfg->max_value : cfg->min_value;
         }
         
@@ -154,12 +145,10 @@ static float prv_compute_next_value(Pattern_State_t* state, uint32_t current_tim
         
         case PATTERN_STATE_SEQUENCE: {
             if ((cfg->state_values == NULL) || (cfg->num_states == 0u)) {
-                float phase = fmodf(t_active, period) / period;
-                if (phase < 0.0f) phase += 1.0f;
                 return (phase < 0.5f) ? cfg->max_value : cfg->min_value;
             }
             uint32_t hold = (cfg->state_hold_ms > 0u) ? cfg->state_hold_ms : 1000u;
-            uint32_t idx = ((uint32_t)(t_active * 1000.0f) / hold) % (uint32_t)cfg->num_states;
+            uint32_t idx = (active_ms / hold) % (uint32_t)cfg->num_states;
             return cfg->state_values[idx];
         }
         
@@ -176,7 +165,8 @@ void Pattern_Generator_Init(uint32_t sim_start_time_ms)
 {
     memset(g_patterns, 0, sizeof(g_patterns));
     g_pattern_count = 0u;
-    g_sim_start_ms = sim_start_time_ms;
+    g_last_time_ms = sim_start_time_ms;
+    g_elapsed_ms = 0u;
     g_is_running = true;
 }
 
@@ -189,7 +179,7 @@ bool Pattern_Generator_Register(const Pattern_Config_t* config)
         if (g_patterns[i].config.spn == config->spn) {
             g_patterns[i].config = *config;
             g_patterns[i].current_value = config->initial_value;
-            g_patterns[i].last_update_ms = g_sim_start_ms;
+            g_patterns[i].last_update_ms = g_last_time_ms;
             g_patterns[i].ramp_direction = +1.0f;
             g_patterns[i].step_state_index = 0u;
             return true;
@@ -201,7 +191,7 @@ bool Pattern_Generator_Register(const Pattern_Config_t* config)
     Pattern_State_t* state = &g_patterns[g_pattern_count];
     state->config = *config;
     state->current_value = config->initial_value;
-    state->last_update_ms = g_sim_start_ms;
+    state->last_update_ms = g_last_time_ms;
     state->ramp_direction = +1.0f;
     state->step_state_index = 0u;
     
@@ -212,7 +202,9 @@ bool Pattern_Generator_Register(const Pattern_Config_t* config)
 void Pattern_Generator_Update(uint32_t current_time_ms)
 {
     if (!g_is_running) return;
-    
+    g_elapsed_ms += (uint32_t)(current_time_ms - g_last_time_ms);
+    g_last_time_ms = current_time_ms;
+
     for (uint8_t i = 0u; i < g_pattern_count; i++) {
         Pattern_State_t* state = &g_patterns[i];
         state->current_value = prv_compute_next_value(state, current_time_ms);
@@ -242,7 +234,8 @@ float Pattern_Generator_Get_Value_Instant(uint32_t spn, uint32_t current_time_ms
 
 void Pattern_Generator_Reset(uint32_t current_time_ms)
 {
-    g_sim_start_ms = current_time_ms;
+    g_last_time_ms = current_time_ms;
+    g_elapsed_ms = 0u;
     g_is_running = true;
     
     for (uint8_t i = 0u; i < g_pattern_count; i++) {

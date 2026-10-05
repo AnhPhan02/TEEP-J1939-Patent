@@ -203,8 +203,8 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
     cfg.max_value = req->max_value;
     cfg.param1 = req->param1;
     cfg.timeframe_ms = req->timeframe_ms;
-    cfg.t_start_sec = req->t_start;
-    cfg.t_duration_sec = req->t_dur;
+    cfg.start_ms = (uint32_t)(req->t_start * 1000.0f);
+    cfg.duration_ms = (uint32_t)(req->t_dur * 1000.0f);
     cfg.update_interval_ms = (req->timeframe_ms > 0u && req->timeframe_ms < 10u) ? req->timeframe_ms : 10u;
 
     float period = (req->param1 > 0.1f) ? req->param1 : 10.0f;
@@ -248,7 +248,7 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
     if (!Pattern_Generator_Register(&cfg)) {
         return APP_CFG_TABLE_FULL;
     }
-    if (!J1939_Sched_Add_Signal(def, req->timeframe_ms, req->t_start, req->t_dur, hal_time_ms())) {
+    if (!J1939_Sched_Add_Signal(def, req->timeframe_ms, cfg.start_ms, cfg.duration_ms, hal_time_ms())) {
         return APP_CFG_TABLE_FULL;
     }
     return APP_CFG_OK;

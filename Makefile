@@ -82,3 +82,13 @@ $(BUILD)/generated/scenario.h: FORCE $(SCENARIO) tools/scenario.py $(BUILD)/expo
 	$(PYTHON) tools/scenario.py --input "$(SCENARIO)" --metadata $(BUILD)/export_metadata --output $(BUILD)/generated
 
 scenario: $(BUILD)/generated/scenario.h
+
+HOST_MID_SOURCES := MID/j1939_pattern_generator.c MID/j1939_tx_scheduler.c MID/j1939_encode_decode.c MID/j1939_signal_definitions.c MID/j1939_pgn_timing.c MID/j1939_frame.c
+.PHONY: test
+test: $(BUILD)/firmware_test
+	$(PYTHON) -m unittest discover -s tests -v
+	$(BUILD)/firmware_test
+
+$(BUILD)/firmware_test: tests/firmware_test.c $(HOST_MID_SOURCES) $(wildcard MID/*.h)
+	@mkdir -p $(BUILD)
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -g -fsanitize=address,undefined $(INCLUDES) $< $(HOST_MID_SOURCES) -lm -o $@
