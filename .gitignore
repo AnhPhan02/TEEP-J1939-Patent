@@ -5,3 +5,7 @@ build/
 *.bin
 *.map
 *.d
+
+__pycache__/
+*.pyc
+.DS_Store
