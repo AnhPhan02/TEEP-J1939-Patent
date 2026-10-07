@@ -2,6 +2,18 @@
  * =============================================================================
  * FILE : j1939_signal_definitions.c
  * WHAT : Complete J1939 signal database table.
+ * * Columns:
+ *  1. PGN          : Parameter Group Number (decimal / macro define)
+ *  2. SPN          : Suspect Parameter Number
+ *  3. Name         : Signal Name
+ *  4. Unit         : Engineering Unit
+ *  5. Byte         : 1-based start byte in CAN payload (1..8)
+ *  6. Bit          : 1-based start bit within start byte (1..8)
+ *  7. Bits         : Bit length
+ *  8. Resolution   : Scaling factor (physical units per LSB)
+ *  9. Offset       : Offset added to (raw * resolution)
+ * 10. Min Physical : Minimum physical range
+ * 11. Max Physical : Maximum physical range
  * =============================================================================
  */
 
@@ -64,7 +76,7 @@ const J1939_Signal_Definition_t J1939_Signal_Database[] = {
     },
 
     /* =========================================================================
-     * EEC2 PGN 61442 - 50 ms
+     * EEC2 PGN 61443 - 50 ms
      * ========================================================================= */
     {
         .pgn = PGN_EEC2,

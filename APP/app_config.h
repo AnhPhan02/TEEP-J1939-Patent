@@ -13,7 +13,7 @@
 
 #define APP_DEFAULT_CAN_BAUD_KBPS   250u        /* SAE J1939-11 standard rate */
 #define APP_TELEMETRY_PERIOD_MS     250u
-#define APP_TELEMETRY_SHOW_SIGNALS  0u          /* 0: frame count only, 1: also print SPN values */
+#define APP_TELEMETRY_SHOW_SIGNALS  0u          /* 0: no periodic telemetry, 1: frame count + SPN values */
 #define APP_CAN_WARN_PERIOD_MS      2000u       /* Rate limit for bus diagnostics */
 
 #define APP_AUTOSTART_ENABLE        0u          /* 0: wait for CLI START; no CAN frames at boot */

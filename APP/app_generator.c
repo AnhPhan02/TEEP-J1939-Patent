@@ -112,9 +112,6 @@ static void prv_print_telemetry(void)
     hal_console_write("[TX] Frames: ");
     hal_console_write_u32(s_total_frames_sent);
 
-#endif
-
-#if APP_TELEMETRY_SHOW_SIGNALS
     uint8_t display_count = (count <= 8u) ? count : 6u;
     for (uint8_t i = 0; i < display_count; i++) {
         const J1939_Sched_Signal_t* sig = J1939_Sched_Get_Signal(i);
@@ -130,8 +127,10 @@ static void prv_print_telemetry(void)
         hal_console_write_u32(count);
         hal_console_write(" SPNs transmitting on CAN]");
     }
-#endif
     hal_console_write_line(NULL);
+#endif
+    /* Telemetry off: print nothing - a bare CRLF every period would show up
+     * as a blank line in the $TX log */
 }
 
 /* =============================================================================
@@ -270,7 +269,7 @@ void App_Gen_Load_Defaults(void)
      * five-second startup lead-in, then holds 1500 rpm continuously.
      */
     // prv_add_default(SPN_ENGINE_SPEED, PATTERN_CONSTANT, 1500.0f, 1500.0f, 0.0f);
-    prv_add_default(SPN_ENGINE_SPEED,    PATTERN_SINE, 800.0f, 3500.0f,  8.0f);
+    prv_add_default(SPN_ENGINE_SPEED,    PATTERN_SINE, 0.0f, 3500.0f,  8.0f);
     // prv_add_default(SPN_ACCEL_PEDAL_POS, PATTERN_RAMP,   0.0f,  100.0f, 10.0f);
     // prv_add_default(SPN_VEHICLE_SPEED,   PATTERN_RAMP,   0.0f,  120.0f, 15.0f);
 }
