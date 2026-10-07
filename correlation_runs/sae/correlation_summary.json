@@ -1,0 +1,72 @@
+{
+  "clock_locked": true,
+  "offset_ms": -16344.126,
+  "run_t0_ms": 97516.0,
+  "tx": {
+    "logged": 1480,
+    "queued": 1480,
+    "busy": 0,
+    "error": 0,
+    "log_gap_lines": 19
+  },
+  "rx": {
+    "total": 1499,
+    "foreign": 0,
+    "waiting": 0
+  },
+  "verdicts": {
+    "match": 1480,
+    "lost": 0,
+    "mismatch": 0,
+    "unexpected": 0,
+    "unlogged": 19
+  },
+  "match_rate_pct": 100.0,
+  "latency_jitter_ms": {
+    "n": 1480,
+    "mean": -0.111,
+    "std": 0.103,
+    "min": -0.24,
+    "max": 0.665
+  },
+  "clock_drift_ppm": -136.7,
+  "per_id": [
+    {
+      "can_id": "0x0CF00400",
+      "pgn": 61444,
+      "tx_period_ms": {
+        "n": 1479,
+        "mean": 20.257,
+        "std": 2.253,
+        "min": 20.0,
+        "max": 40.0
+      },
+      "rx_period_ms": {
+        "n": 1498,
+        "mean": 19.997,
+        "std": 0.024,
+        "min": 19.914,
+        "max": 20.065
+      }
+    }
+  ],
+  "spn_checks": [
+    {
+      "spn": 190,
+      "name": "Engine Speed",
+      "checked": 1480,
+      "value_ok": 1480,
+      "range_only": 0,
+      "fail": 0,
+      "last": {
+        "spn": 190,
+        "name": "Engine Speed",
+        "unit": "rpm",
+        "value": 2967.875,
+        "raw": 23743,
+        "expected": 2967.8474,
+        "verdict": "VALUE_OK"
+      }
+    }
+  ]
+}

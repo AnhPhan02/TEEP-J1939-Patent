@@ -1,0 +1,75 @@
+{
+  "clock_locked": true,
+  "offset_ms": -16338.283,
+  "run_t0_ms": 54729.0,
+  "tx": {
+    "logged": 2970,
+    "queued": 2970,
+    "busy": 0,
+    "error": 0,
+    "log_gap_lines": 29
+  },
+  "rx": {
+    "total": 2999,
+    "foreign": 0,
+    "waiting": 0
+  },
+  "verdicts": {
+    "match": 2970,
+    "lost": 0,
+    "mismatch": 0,
+    "unexpected": 0,
+    "unlogged": 29
+  },
+  "match_rate_pct": 100.0,
+  "latency_jitter_ms": {
+    "n": 2970,
+    "mean": -0.063,
+    "std": 0.07,
+    "min": -0.173,
+    "max": 0.664
+  },
+  "clock_drift_ppm": -152.5,
+  "per_id": [
+    {
+      "can_id": "0x0CF00400",
+      "pgn": 61444,
+      "tx_period_ms": {
+        "n": 2969,
+        "mean": 10.098,
+        "std": 1.017,
+        "min": 10.0,
+        "max": 30.0
+      },
+      "rx_period_ms": {
+        "n": 2998,
+        "mean": 9.999,
+        "std": 0.022,
+        "min": 9.887,
+        "max": 10.067
+      }
+    }
+  ],
+  "spn_checks": [
+    {
+      "spn": 190,
+      "name": "Engine Speed",
+      "checked": 2970,
+      "value_ok": 2970,
+      "range_only": 0,
+      "fail": 0,
+      "last": {
+        "spn": 190,
+        "name": "Engine Speed",
+        "unit": "rpm",
+        "value": 2977.625,
+        "raw": 23821,
+        "expected": 2977.68,
+        "verdict": "VALUE_OK"
+      }
+    }
+  ]
+}
+Per-frame report: correlation_runs\smooth\correlation_report.csv
+Summary JSON: correlation_runs\smooth\correlation_summary.json
+Human report: correlation_runs\smooth\correlation_summary.md

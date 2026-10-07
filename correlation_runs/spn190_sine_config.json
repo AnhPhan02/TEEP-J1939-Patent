@@ -1,0 +1,14 @@
+{
+  "signals": [
+    {
+      "spn": 190,
+      "pattern_type": 2,
+      "min_value": 0.0,
+      "max_value": 3500.0,
+      "param1": 8.0,
+      "timeframe_ms": 0,
+      "t_start": 0.0,
+      "t_dur": 0.0
+    }
+  ]
+}
