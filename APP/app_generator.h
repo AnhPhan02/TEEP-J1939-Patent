@@ -20,6 +20,7 @@ extern "C" {
 #include "j1939_tx_scheduler.h"
 
 typedef struct {
+    uint32_t       pgn;             /* 0 = SPN-only; accepted only when unique */
     uint32_t       spn;
     Pattern_Type_t type;
     float          min_value;
@@ -33,6 +34,7 @@ typedef struct {
 typedef enum {
     APP_CFG_OK = 0,
     APP_CFG_UNKNOWN_SPN,
+    APP_CFG_AMBIGUOUS_SPN,
     APP_CFG_UNSUPPORTED_SIGNAL,
     APP_CFG_TABLE_FULL
 } App_Config_Status_t;

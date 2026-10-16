@@ -137,9 +137,11 @@ static void prv_print_telemetry(void)
 /* =============================================================================
  * PRIVATE: Register one default waveform
  * ============================================================================= */
-static void prv_add_default(uint32_t spn, Pattern_Type_t type, float min_v, float max_v, float period_s)
+static void prv_add_default(uint32_t pgn, uint32_t spn, Pattern_Type_t type,
+                            float min_v, float max_v, float period_s)
 {
-    const J1939_Signal_Definition_t* def = J1939_Find_Signal_By_SPN(spn);
+    const J1939_Signal_Definition_t* def =
+        J1939_Find_Signal_By_PGN_SPN(pgn, spn);
     if (def == NULL) {
         return;
     }
@@ -188,12 +190,28 @@ uint32_t App_Gen_Get_Baud(void)
 App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
                                           const J1939_Signal_Definition_t** out_def)
 {
-    const J1939_Signal_Definition_t* def = J1939_Find_Signal_By_SPN(req->spn);
     if (out_def != NULL) {
-        *out_def = def;
+        *out_def = NULL;
+    }
+    if (req == NULL) {
+        return APP_CFG_UNKNOWN_SPN;
+    }
+
+    const J1939_Signal_Definition_t* def = NULL;
+    if (req->pgn != 0u) {
+        def = J1939_Find_Signal_By_PGN_SPN(req->pgn, req->spn);
+    } else {
+        uint16_t match_count = 0u;
+        def = J1939_Find_Unique_Signal_By_SPN(req->spn, &match_count);
+        if (match_count > 1u) {
+            return APP_CFG_AMBIGUOUS_SPN;
+        }
     }
     if (def == NULL) {
         return APP_CFG_UNKNOWN_SPN;
+    }
+    if (out_def != NULL) {
+        *out_def = def;
     }
     if (!J1939_Is_Signal_8Byte_Scalar(def)) {
         return APP_CFG_UNSUPPORTED_SIGNAL;
@@ -263,9 +281,12 @@ void App_Gen_Load_Defaults(void)
     Pattern_Generator_Init(hal_time_ms());
     J1939_Sched_Clear();
 
-    prv_add_default(SPN_ENGINE_SPEED,    PATTERN_SINE, 800.0f, 3500.0f,  8.0f);
-    prv_add_default(SPN_ACCEL_PEDAL_POS, PATTERN_RAMP,   0.0f,  100.0f, 10.0f);
-    prv_add_default(SPN_VEHICLE_SPEED,   PATTERN_RAMP,   0.0f,  120.0f, 15.0f);
+    prv_add_default(PGN_EEC1,  SPN_ENGINE_SPEED,
+                    PATTERN_SINE, 800.0f, 3500.0f, 8.0f);
+    prv_add_default(PGN_EEC2,  SPN_ACCEL_PEDAL_POS,
+                    PATTERN_RAMP, 0.0f, 100.0f, 10.0f);
+    prv_add_default(PGN_CCVS1, SPN_VEHICLE_SPEED,
+                    PATTERN_RAMP, 0.0f, 120.0f, 15.0f);
 }
 
 void App_Gen_Clear(void)
