@@ -33,6 +33,7 @@ typedef struct {
 typedef enum {
     APP_CFG_OK = 0,
     APP_CFG_UNKNOWN_SPN,
+    APP_CFG_UNSUPPORTED_SIGNAL,
     APP_CFG_TABLE_FULL
 } App_Config_Status_t;
 

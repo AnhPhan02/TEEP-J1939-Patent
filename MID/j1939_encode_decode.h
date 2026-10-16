@@ -49,6 +49,11 @@ bool J1939_Encode_Signal(const J1939_Signal_Definition_t* signal_def,
                          float physical_value,
                          uint8_t* payload);
 
+/* True when the signal fits the current scalar codec and an 8-byte CAN frame.
+ * Longer fields remain available in the metadata database for a future TP
+ * codec, but must not be passed to the classic-frame encoder/decoder. */
+bool J1939_Is_Signal_8Byte_Scalar(const J1939_Signal_Definition_t* signal_def);
+
 /* =============================================================================
  * J1939_Is_Value_Valid - Check if physical value is within valid range
  * ============================================================================= */

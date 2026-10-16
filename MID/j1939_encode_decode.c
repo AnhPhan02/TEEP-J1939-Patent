@@ -21,6 +21,20 @@ static float prv_clamp_value(float value, float lo, float hi)
     return value;
 }
 
+bool J1939_Is_Signal_8Byte_Scalar(const J1939_Signal_Definition_t* signal_def)
+{
+    if ((signal_def == NULL) ||
+        (signal_def->start_byte < 1u) || (signal_def->start_byte > 8u) ||
+        (signal_def->start_bit < 1u) || (signal_def->start_bit > 8u) ||
+        (signal_def->num_bits < 1u) || (signal_def->num_bits > 32u)) {
+        return false;
+    }
+
+    uint32_t start = ((uint32_t)signal_def->start_byte - 1u) * 8u +
+                     ((uint32_t)signal_def->start_bit - 1u);
+    return (start + signal_def->num_bits) <= 64u;
+}
+
 /* =============================================================================
  * PRIVATE: Convert 1-based (byte, bit) to 0-based absolute bit index (0-63)
  * ============================================================================= */
@@ -47,7 +61,7 @@ static uint32_t prv_extract_aligned_bits(const uint8_t* payload,
                                           const J1939_Signal_Definition_t* signal_def)
 {
     uint8_t byte_idx = signal_def->start_byte - 1u;
-    uint8_t num_bits = signal_def->num_bits;
+    uint8_t num_bits = (uint8_t)signal_def->num_bits;
     
     switch (num_bits) {
         case 8:
@@ -130,7 +144,7 @@ static void prv_write_aligned_bits(uint8_t* payload,
                                     uint32_t value)
 {
     uint8_t byte_idx = signal_def->start_byte - 1u;
-    uint8_t num_bits = signal_def->num_bits;
+    uint8_t num_bits = (uint8_t)signal_def->num_bits;
     
     switch (num_bits) {
         case 8:
@@ -212,7 +226,7 @@ static void prv_write_raw_value(uint8_t* payload,
 float J1939_Decode_Signal(const J1939_Signal_Definition_t* signal_def, 
                           const uint8_t* payload)
 {
-    if ((signal_def == NULL) || (payload == NULL)) {
+    if ((payload == NULL) || !J1939_Is_Signal_8Byte_Scalar(signal_def)) {
         return 0.0f;
     }
     
@@ -232,7 +246,7 @@ bool J1939_Encode_Signal(const J1939_Signal_Definition_t* signal_def,
                          float physical_value,
                          uint8_t* payload)
 {
-    if ((signal_def == NULL) || (payload == NULL)) {
+    if ((payload == NULL) || !J1939_Is_Signal_8Byte_Scalar(signal_def)) {
         return false;
     }
     

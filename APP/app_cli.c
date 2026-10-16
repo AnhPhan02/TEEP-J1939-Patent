@@ -71,6 +71,11 @@ static void prv_cmd_config(char* args)
             hal_console_write_u32(req.spn);
             hal_console_write_line(" not found in J1939 signal database!");
             return;
+        case APP_CFG_UNSUPPORTED_SIGNAL:
+            hal_console_write("[ERR] SPN ");
+            hal_console_write_u32(req.spn);
+            hal_console_write_line(" requires a multi-packet or non-scalar codec.");
+            return;
         case APP_CFG_TABLE_FULL:
             hal_console_write_line("[ERR] Failed to register pattern (maximum signals reached).");
             return;

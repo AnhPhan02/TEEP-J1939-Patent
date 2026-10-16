@@ -8,6 +8,7 @@
 #include "app_generator.h"
 #include "app_config.h"
 #include "j1939_link.h"
+#include "j1939_encode_decode.h"
 #include "hal_console.h"
 #include "hal_time.h"
 #include "hal_led.h"
@@ -193,6 +194,9 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
     }
     if (def == NULL) {
         return APP_CFG_UNKNOWN_SPN;
+    }
+    if (!J1939_Is_Signal_8Byte_Scalar(def)) {
+        return APP_CFG_UNSUPPORTED_SIGNAL;
     }
 
     Pattern_Config_t cfg;
