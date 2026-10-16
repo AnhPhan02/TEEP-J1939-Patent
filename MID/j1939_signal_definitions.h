@@ -184,6 +184,11 @@ extern const uint16_t J1939_On_Request_Signal_Count;
 /* SPN-only lookup returns the first match. Use the PGN+SPN lookup for SPNs
  * that legitimately occur in more than one PGN (currently 928 and 1807). */
 const J1939_Signal_Definition_t* J1939_Find_Signal_By_SPN(uint32_t spn_number);
+/* Returns a definition only when the SPN has exactly one database entry.
+ * match_count may be NULL; otherwise it receives 0, 1, or the duplicate count. */
+const J1939_Signal_Definition_t* J1939_Find_Unique_Signal_By_SPN(
+    uint32_t spn_number,
+    uint16_t* match_count);
 const J1939_Signal_Definition_t* J1939_Find_Signal_By_PGN_SPN(uint32_t pgn,
                                                               uint32_t spn_number);
 

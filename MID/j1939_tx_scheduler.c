@@ -67,8 +67,10 @@ static void prv_debug_capture(const Sched_PGN_Entry_t* entry,
     hdr.source_address = entry->timing.source_address;
     hdr.destination_address = J1939_ADDR_GLOBAL;
 
+    float decoded = 0.0f;
+    (void)J1939_Decode_Signal_Sized(def, payload, 8u, &decoded);
     g_j1939_dbg.value = value;
-    g_j1939_dbg.decoded = J1939_Decode_Signal(def, payload);
+    g_j1939_dbg.decoded = decoded;
     g_j1939_dbg.can_id = J1939_Frame_Build_Id(&hdr);
     for (uint8_t i = 0; i < 8u; i++) {
         g_j1939_dbg.data[i] = payload[i];
@@ -270,7 +272,8 @@ void J1939_Sched_Tick(uint32_t now_ms, J1939_Sched_Tick_Result_t* result)
             const J1939_Sched_Signal_t* sig = &s_signals[s];
             if (sig->pgn == entry->timing.pgn) {
                 float value = Pattern_Generator_Get_Value_Instant(sig->spn, now_ms, sig->def->min_physical);
-                J1939_Encode_Signal(sig->def, value, payload);
+                (void)J1939_Encode_Signal_Sized(sig->def, value, payload,
+                                                sizeof(payload));
                 if (sig->spn == g_j1939_dbg.watch_spn) {
                     watch_def = sig->def;
                     watch_value = value;

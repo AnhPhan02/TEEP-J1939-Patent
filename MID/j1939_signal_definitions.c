@@ -756,6 +756,28 @@ const J1939_Signal_Definition_t* J1939_Find_Signal_By_SPN(uint32_t spn_number)
     return NULL;
 }
 
+const J1939_Signal_Definition_t* J1939_Find_Unique_Signal_By_SPN(
+    uint32_t spn_number,
+    uint16_t* match_count)
+{
+    const J1939_Signal_Definition_t* match = NULL;
+    uint16_t count = 0u;
+
+    for (uint16_t i = 0u; i < J1939_Signal_Count; i++) {
+        if (J1939_Signal_Database[i].spn == spn_number) {
+            if (match == NULL) {
+                match = &J1939_Signal_Database[i];
+            }
+            count++;
+        }
+    }
+
+    if (match_count != NULL) {
+        *match_count = count;
+    }
+    return (count == 1u) ? match : NULL;
+}
+
 const J1939_Signal_Definition_t* J1939_Find_Signal_By_PGN_SPN(uint32_t pgn,
                                                               uint32_t spn_number)
 {
