@@ -138,7 +138,8 @@ static float prv_compute_next_value(Pattern_State_t* state, uint32_t current_tim
         
         case PATTERN_RANDOM_WALK: {
             /* Pure non-repeating stochastic random signal (not a harmonic pattern) */
-            uint32_t prng_seed = (cfg->spn * 2654435761u) ^ (current_time_ms * 1664525u + 1013904223u);
+            uint32_t prng_seed = (((uint32_t)cfg->signal_id + 1u) * 2654435761u) ^
+                                 (current_time_ms * 1664525u + 1013904223u);
             uint32_t r1 = prv_xorshift32(&prng_seed);
             float u = (float)(r1 % 1000000u) / 1000000.0f;
             
@@ -182,11 +183,14 @@ void Pattern_Generator_Init(uint32_t sim_start_time_ms)
 
 bool Pattern_Generator_Register(const Pattern_Config_t* config)
 {
-    if (config == NULL) return false;
+    if ((config == NULL) ||
+        (J1939_Find_Signal_By_Id(config->signal_id) == NULL)) {
+        return false;
+    }
 
-    /* If SPN is already registered, update it in place immediately! */
+    /* If this database signal is already registered, update it in place. */
     for (uint8_t i = 0u; i < g_pattern_count; i++) {
-        if (g_patterns[i].config.spn == config->spn) {
+        if (g_patterns[i].config.signal_id == config->signal_id) {
             g_patterns[i].config = *config;
             g_patterns[i].current_value = config->initial_value;
             g_patterns[i].last_update_ms = g_sim_start_ms;
@@ -220,20 +224,23 @@ void Pattern_Generator_Update(uint32_t current_time_ms)
     }
 }
 
-float Pattern_Generator_Get_Value(uint32_t spn, float default_value)
+float Pattern_Generator_Get_Value(J1939_Signal_Id_t signal_id,
+                                  float default_value)
 {
     for (uint8_t i = 0u; i < g_pattern_count; i++) {
-        if (g_patterns[i].config.spn == spn) {
+        if (g_patterns[i].config.signal_id == signal_id) {
             return g_patterns[i].current_value;
         }
     }
     return default_value;
 }
 
-float Pattern_Generator_Get_Value_Instant(uint32_t spn, uint32_t current_time_ms, float default_value)
+float Pattern_Generator_Get_Value_Instant(J1939_Signal_Id_t signal_id,
+                                          uint32_t current_time_ms,
+                                          float default_value)
 {
     for (uint8_t i = 0u; i < g_pattern_count; i++) {
-        if (g_patterns[i].config.spn == spn) {
+        if (g_patterns[i].config.signal_id == signal_id) {
             return prv_compute_next_value(&g_patterns[i], current_time_ms);
         }
     }

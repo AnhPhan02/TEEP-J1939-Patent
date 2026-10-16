@@ -119,9 +119,10 @@ static void prv_print_telemetry(void)
     for (uint8_t i = 0; i < display_count; i++) {
         const J1939_Sched_Signal_t* sig = J1939_Sched_Get_Signal(i);
         hal_console_write(" | SPN ");
-        hal_console_write_u32(sig->spn);
+        hal_console_write_u32(sig->def->spn);
         hal_console_write(": ");
-        hal_console_write_float(Pattern_Generator_Get_Value(sig->spn, 0.0f), 1);
+        hal_console_write_float(
+            Pattern_Generator_Get_Value(sig->signal_id, 0.0f), 1);
         hal_console_write(" ");
         hal_console_write(sig->def->unit);
     }
@@ -146,9 +147,14 @@ static void prv_add_default(uint32_t pgn, uint32_t spn, Pattern_Type_t type,
         return;
     }
 
+    J1939_Signal_Id_t signal_id = J1939_SIGNAL_ID_INVALID;
+    if (!J1939_Get_Signal_Id(def, &signal_id)) {
+        return;
+    }
+
     Pattern_Config_t cfg;
     memset(&cfg, 0, sizeof(cfg));
-    cfg.spn = spn;
+    cfg.signal_id = signal_id;
     cfg.pattern_type = type;
     cfg.min_value = min_v;
     cfg.max_value = max_v;
@@ -200,13 +206,16 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
     const J1939_Signal_Definition_t* def = NULL;
     if (req->pgn != 0u) {
         def = J1939_Find_Signal_By_PGN_SPN(req->pgn, req->spn);
-    } else {
+    } 
+    
+    else {
         uint16_t match_count = 0u;
         def = J1939_Find_Unique_Signal_By_SPN(req->spn, &match_count);
         if (match_count > 1u) {
             return APP_CFG_AMBIGUOUS_SPN;
         }
     }
+    
     if (def == NULL) {
         return APP_CFG_UNKNOWN_SPN;
     }
@@ -217,9 +226,14 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
         return APP_CFG_UNSUPPORTED_SIGNAL;
     }
 
+    J1939_Signal_Id_t signal_id = J1939_SIGNAL_ID_INVALID;
+    if (!J1939_Get_Signal_Id(def, &signal_id)) {
+        return APP_CFG_UNKNOWN_SPN;
+    }
+
     Pattern_Config_t cfg;
     memset(&cfg, 0, sizeof(cfg));
-    cfg.spn = req->spn;
+    cfg.signal_id = signal_id;
     cfg.pattern_type = req->type;
     cfg.min_value = req->min_value;
     cfg.max_value = req->max_value;
@@ -380,13 +394,14 @@ void App_Gen_Print_Status(void)
         hal_console_write("  #");
         hal_console_write_u32(i + 1u);
         hal_console_write(": SPN ");
-        hal_console_write_u32(sig->spn);
+        hal_console_write_u32(sig->def->spn);
         hal_console_write(" (");
         hal_console_write(sig->def->name);
         hal_console_write(") in PGN ");
-        hal_console_write_u32(sig->pgn);
+        hal_console_write_u32(sig->def->pgn);
         hal_console_write(" | Cur Val: ");
-        hal_console_write_float(Pattern_Generator_Get_Value(sig->spn, 0.0f), 2);
+        hal_console_write_float(
+            Pattern_Generator_Get_Value(sig->signal_id, 0.0f), 2);
         hal_console_write(" ");
         hal_console_write_line(sig->def->unit);
     }

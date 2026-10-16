@@ -14,6 +14,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "j1939_signal_definitions.h"
 
 /* Maximum number of simultaneously registered signals */
 #define PATTERN_GEN_MAX_SIGNALS  65u
@@ -36,7 +37,7 @@ typedef enum {
  * PATTERN CONFIGURATION STRUCT
  * ============================================================================= */
 typedef struct {
-    uint32_t        spn;                    /* SPN number this pattern drives */
+    J1939_Signal_Id_t signal_id;            /* Unique database index this pattern drives */
     Pattern_Type_t  pattern_type;           /* Type of pattern */
     
     /* Range limits (apply to all patterns) */
@@ -89,11 +90,14 @@ bool Pattern_Generator_Register(const Pattern_Config_t* config);
 /* Update all registered patterns (call every 1ms from main loop) */
 void Pattern_Generator_Update(uint32_t current_time_ms);
 
-/* Get current value for an SPN */
-float Pattern_Generator_Get_Value(uint32_t spn, float default_value);
+/* Get current value for one unique database signal */
+float Pattern_Generator_Get_Value(J1939_Signal_Id_t signal_id,
+                                  float default_value);
 
-/* Get instantaneous mathematically continuous value for an SPN at current timestamp */
-float Pattern_Generator_Get_Value_Instant(uint32_t spn, uint32_t current_time_ms, float default_value);
+/* Get instantaneous mathematically continuous value for one database signal */
+float Pattern_Generator_Get_Value_Instant(J1939_Signal_Id_t signal_id,
+                                          uint32_t current_time_ms,
+                                          float default_value);
 
 /* Reset all patterns to initial values */
 void Pattern_Generator_Reset(uint32_t current_time_ms);

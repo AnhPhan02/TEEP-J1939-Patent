@@ -746,6 +746,19 @@ const uint16_t J1939_Periodic_Signal_Count = 142u;
 const uint16_t J1939_Event_Signal_Count = 14u;
 const uint16_t J1939_On_Request_Signal_Count = 23u;
 
+typedef struct {
+    J1939_Signal_Key_t key;
+    uint32_t pgn;
+    uint32_t spn;
+} J1939_Signal_Key_Map_t;
+
+/* R1 deliberately exposes only the frozen three-signal MVP to the UI. */
+static const J1939_Signal_Key_Map_t s_signal_key_map[] = {
+    { J1939_SIGNAL_KEY_ENGINE_SPEED,    PGN_EEC1,  SPN_ENGINE_SPEED },
+    { J1939_SIGNAL_KEY_ACCEL_PEDAL_POS, PGN_EEC2,  SPN_ACCEL_PEDAL_POS },
+    { J1939_SIGNAL_KEY_VEHICLE_SPEED,   PGN_CCVS1, SPN_VEHICLE_SPEED }
+};
+
 const J1939_Signal_Definition_t* J1939_Find_Signal_By_SPN(uint32_t spn_number)
 {
     for (uint16_t i = 0u; i < J1939_Signal_Count; i++) {
@@ -788,4 +801,62 @@ const J1939_Signal_Definition_t* J1939_Find_Signal_By_PGN_SPN(uint32_t pgn,
         }
     }
     return NULL;
+}
+
+bool J1939_Get_Signal_Id(const J1939_Signal_Definition_t* signal_def,
+                         J1939_Signal_Id_t* signal_id)
+{
+    if ((signal_def == NULL) || (signal_id == NULL)) {
+        return false;
+    }
+
+    for (J1939_Signal_Id_t i = 0u; i < J1939_Signal_Count; i++) {
+        if (signal_def == &J1939_Signal_Database[i]) {
+            *signal_id = i;
+            return true;
+        }
+    }
+    return false;
+}
+
+const J1939_Signal_Definition_t* J1939_Find_Signal_By_Id(
+    J1939_Signal_Id_t signal_id)
+{
+    return (signal_id < J1939_Signal_Count)
+        ? &J1939_Signal_Database[signal_id]
+        : NULL;
+}
+
+const J1939_Signal_Definition_t* J1939_Find_Signal_By_Key(
+    J1939_Signal_Key_t signal_key)
+{
+    for (uint16_t i = 0u;
+         i < (uint16_t)(sizeof(s_signal_key_map) / sizeof(s_signal_key_map[0]));
+         i++) {
+        if (s_signal_key_map[i].key == signal_key) {
+            return J1939_Find_Signal_By_PGN_SPN(s_signal_key_map[i].pgn,
+                                                s_signal_key_map[i].spn);
+        }
+    }
+    return NULL;
+}
+
+bool J1939_Get_Signal_Key(J1939_Signal_Id_t signal_id,
+                          J1939_Signal_Key_t* signal_key)
+{
+    const J1939_Signal_Definition_t* def = J1939_Find_Signal_By_Id(signal_id);
+    if ((def == NULL) || (signal_key == NULL)) {
+        return false;
+    }
+
+    for (uint16_t i = 0u;
+         i < (uint16_t)(sizeof(s_signal_key_map) / sizeof(s_signal_key_map[0]));
+         i++) {
+        if ((s_signal_key_map[i].pgn == def->pgn) &&
+            (s_signal_key_map[i].spn == def->spn)) {
+            *signal_key = s_signal_key_map[i].key;
+            return true;
+        }
+    }
+    return false;
 }

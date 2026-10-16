@@ -27,7 +27,9 @@ static uint8_t              s_pgn_count = 0u;
 
 static J1939_Sched_Mode_t   s_mode = J1939_SCHED_MODE_SMOOTH;
 
-volatile J1939_Debug_Watch_t g_j1939_dbg = { .watch_spn = SPN_ENGINE_SPEED };
+volatile J1939_Debug_Watch_t g_j1939_dbg = {
+    .watch_signal_id = J1939_SIGNAL_ID_INVALID
+};
 
 /* =============================================================================
  * PRIVATE
@@ -98,6 +100,15 @@ void J1939_Sched_Clear(void)
 {
     s_signal_count = 0u;
     s_pgn_count = 0u;
+
+    if (g_j1939_dbg.watch_signal_id == J1939_SIGNAL_ID_INVALID) {
+        const J1939_Signal_Definition_t* engine_speed =
+            J1939_Find_Signal_By_PGN_SPN(PGN_EEC1, SPN_ENGINE_SPEED);
+        J1939_Signal_Id_t signal_id = J1939_SIGNAL_ID_INVALID;
+        if (J1939_Get_Signal_Id(engine_speed, &signal_id)) {
+            g_j1939_dbg.watch_signal_id = signal_id;
+        }
+    }
 }
 
 bool J1939_Sched_Add_Signal(const J1939_Signal_Definition_t* def,
@@ -106,13 +117,14 @@ bool J1939_Sched_Add_Signal(const J1939_Signal_Definition_t* def,
                             float t_dur,
                             uint32_t now_ms)
 {
-    if (def == NULL) {
+    J1939_Signal_Id_t signal_id = J1939_SIGNAL_ID_INVALID;
+    if (!J1939_Get_Signal_Id(def, &signal_id)) {
         return false;
     }
 
     J1939_Sched_Signal_t* sig = NULL;
     for (uint8_t i = 0; i < s_signal_count; i++) {
-        if (s_signals[i].spn == def->spn) {
+        if (s_signals[i].signal_id == signal_id) {
             sig = &s_signals[i];
             break;
         }
@@ -124,8 +136,7 @@ bool J1939_Sched_Add_Signal(const J1939_Signal_Definition_t* def,
         sig = &s_signals[s_signal_count++];
     }
 
-    sig->spn = def->spn;
-    sig->pgn = def->pgn;
+    sig->signal_id = signal_id;
     sig->def = def;
     sig->timeframe_ms = timeframe_ms;
     sig->t_start = t_start;
@@ -270,11 +281,12 @@ void J1939_Sched_Tick(uint32_t now_ms, J1939_Sched_Tick_Result_t* result)
 
         for (uint8_t s = 0; s < s_signal_count; s++) {
             const J1939_Sched_Signal_t* sig = &s_signals[s];
-            if (sig->pgn == entry->timing.pgn) {
-                float value = Pattern_Generator_Get_Value_Instant(sig->spn, now_ms, sig->def->min_physical);
+            if (sig->def->pgn == entry->timing.pgn) {
+                float value = Pattern_Generator_Get_Value_Instant(
+                    sig->signal_id, now_ms, sig->def->min_physical);
                 (void)J1939_Encode_Signal_Sized(sig->def, value, payload,
                                                 sizeof(payload));
-                if (sig->spn == g_j1939_dbg.watch_spn) {
+                if (sig->signal_id == g_j1939_dbg.watch_signal_id) {
                     watch_def = sig->def;
                     watch_value = value;
                 }

@@ -15,6 +15,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #define J1939_SIGNAL_COUNT_EXPECTED       179u
 #define J1939_TX_PERIOD_NOT_FIXED_MS      0u
@@ -175,6 +176,20 @@ typedef struct {
     float                       max_physical;
 } J1939_Signal_Definition_t;
 
+/* Runtime identity is the signal's database index. Unlike SPN, it is unique
+ * even when the same SPN legitimately appears in more than one PGN. */
+typedef uint16_t J1939_Signal_Id_t;
+typedef uint16_t J1939_Signal_Key_t;
+
+#define J1939_SIGNAL_ID_INVALID              ((J1939_Signal_Id_t)0xFFFFu)
+#define J1939_SIGNAL_KEY_INVALID             ((J1939_Signal_Key_t)0u)
+
+/* Frozen R0 UI keys for the three-signal MVP profile. These are protocol
+ * identifiers, not SPN numbers. */
+#define J1939_SIGNAL_KEY_ENGINE_SPEED        ((J1939_Signal_Key_t)103u)
+#define J1939_SIGNAL_KEY_ACCEL_PEDAL_POS     ((J1939_Signal_Key_t)97u)
+#define J1939_SIGNAL_KEY_VEHICLE_SPEED       ((J1939_Signal_Key_t)144u)
+
 extern const J1939_Signal_Definition_t J1939_Signal_Database[];
 extern const uint16_t J1939_Signal_Count;
 extern const uint16_t J1939_Periodic_Signal_Count;
@@ -191,6 +206,17 @@ const J1939_Signal_Definition_t* J1939_Find_Unique_Signal_By_SPN(
     uint16_t* match_count);
 const J1939_Signal_Definition_t* J1939_Find_Signal_By_PGN_SPN(uint32_t pgn,
                                                               uint32_t spn_number);
+
+/* Unique runtime identity and R0 UI-key mapping. The MVP key table contains
+ * only Engine Speed, Accelerator Pedal Position 1 and Vehicle Speed. */
+bool J1939_Get_Signal_Id(const J1939_Signal_Definition_t* signal_def,
+                         J1939_Signal_Id_t* signal_id);
+const J1939_Signal_Definition_t* J1939_Find_Signal_By_Id(
+    J1939_Signal_Id_t signal_id);
+const J1939_Signal_Definition_t* J1939_Find_Signal_By_Key(
+    J1939_Signal_Key_t signal_key);
+bool J1939_Get_Signal_Key(J1939_Signal_Id_t signal_id,
+                          J1939_Signal_Key_t* signal_key);
 
 #ifdef __cplusplus
 }
