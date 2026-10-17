@@ -177,6 +177,10 @@ void App_Gen_Init(uint32_t baud_kbps)
     Pattern_Generator_Init(hal_time_ms());
     J1939_Sched_Clear();
     J1939_Sched_Set_Tx_Log(APP_TXLOG_DEFAULT_ON != 0u);
+    s_is_running = false;
+    s_test_start_ms = 0u;
+    s_test_duration_ms = 0u;
+    s_total_frames_sent = 0u;
     s_baud_kbps = baud_kbps;
 }
 

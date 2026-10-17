@@ -8,8 +8,10 @@
 #include "op_config.h"
 #include "app_config.h"
 #include "app_cli.h"
+#include "app_control_can.h"
 #include "app_generator.h"
 #include "j1939_link.h"
+#include "j1939_rx_router.h"
 #include "hal_system.h"
 #include "hal_time.h"
 #include "hal_console.h"
@@ -131,16 +133,22 @@ static bool prv_comm_init(void)
 }
 
 /* =============================================================================
- * 4. APP_INIT - generator defaults, auto start when CAN is up
+ * 4. APP_INIT - load defaults; compile-time policy decides whether to auto-start
  * ============================================================================= */
 static void prv_app_init(bool can_ok)
 {
+    J1939_Rx_Router_Init();
+    App_Control_Can_Init();
     App_Gen_Init(APP_DEFAULT_CAN_BAUD_KBPS);
     App_Gen_Load_Defaults();
 
     if (can_ok) {
+#if TSMASTER_TC1001_CONNECT
         App_Gen_Start(0u, J1939_SCHED_MODE_SMOOTH);
         hal_console_write_line("[READY] Auto-started default J1939 transmission (EEC1, EEC2, CCVS1).");
+#else
+        hal_console_write_line("[READY] CAN active - generator STOPPED, waiting for UI TC1001.");
+#endif
     } else {
         hal_console_write_line("[READY] CAN not available - CLI active, retrying bus join.");
     }
@@ -191,7 +199,9 @@ static void prv_comm_fault_step(uint32_t now_ms)
     s_last_can_retry_ms = now_ms;
 
     if (prv_can_join()) {
-        App_Gen_Start(0u, J1939_SCHED_MODE_SMOOTH);
+        /* Recovery never resumes generation without a new explicit command. */
+        App_Gen_Stop();
+        hal_console_write_line("[READY] CAN recovered - generator STOPPED, waiting for UI TC1001.");
         prv_enter(OP_STATE_RUN);
     }
 }
@@ -229,6 +239,8 @@ int main(void)
         App_Cli_Poll();
 
         if (s_state == OP_STATE_RUN) {
+            /* RX service remains active even when the generator is STOPPED. */
+            J1939_Rx_Router_Poll(OP_CAN_RX_POLL_BUDGET);
             App_Gen_Process(now);
             prv_supervise_bus(now);
         } else {
