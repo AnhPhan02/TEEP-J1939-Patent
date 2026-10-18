@@ -294,6 +294,62 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
     return APP_CFG_OK;
 }
 
+App_Set_Const_Status_t App_Gen_Set_Constant_Raw(J1939_Signal_Key_t signal_key,
+                                                uint32_t raw_value,
+                                                uint32_t* applied_raw_value)
+{
+    const J1939_Signal_Definition_t* def =
+        J1939_Find_Signal_By_Key(signal_key);
+    if (def == NULL) {
+        return APP_SET_CONST_UNKNOWN_KEY;
+    }
+    if (!J1939_Is_Signal_8Byte_Scalar(def) ||
+        (def->resolution == 0.0f)) {
+        return APP_SET_CONST_UNSUPPORTED_SIGNAL;
+    }
+
+    const uint32_t max_raw = (def->num_bits >= 32u)
+        ? 0xFFFFFFFFu
+        : (((uint32_t)1u << def->num_bits) - 1u);
+    if (raw_value > max_raw) {
+        return APP_SET_CONST_VALUE_OUT_OF_RANGE;
+    }
+
+    const float physical_value = ((float)raw_value * def->resolution) +
+                                 def->offset;
+    if (!J1939_Is_Value_Valid(def, physical_value)) {
+        return APP_SET_CONST_VALUE_OUT_OF_RANGE;
+    }
+
+    App_Signal_Request_t request;
+    memset(&request, 0, sizeof(request));
+    request.pgn = def->pgn;
+    request.spn = def->spn;
+    request.type = PATTERN_CONSTANT;
+    request.min_value = def->min_physical;
+    request.max_value = def->max_physical;
+    request.param1 = physical_value;
+
+    switch (App_Gen_Config_Signal(&request, NULL)) {
+        case APP_CFG_OK:
+            if (applied_raw_value != NULL) {
+                *applied_raw_value = raw_value;
+            }
+            return APP_SET_CONST_OK;
+        case APP_CFG_TABLE_FULL:
+            return APP_SET_CONST_RESOURCE_FULL;
+        case APP_CFG_UNSUPPORTED_SIGNAL:
+            return APP_SET_CONST_UNSUPPORTED_SIGNAL;
+        default:
+            return APP_SET_CONST_UNKNOWN_KEY;
+    }
+}
+
+bool App_Gen_Has_Configured_Signals(void)
+{
+    return J1939_Sched_Get_Signal_Count() > 0u;
+}
+
 void App_Gen_Load_Defaults(void)
 {
     Pattern_Generator_Init(hal_time_ms());

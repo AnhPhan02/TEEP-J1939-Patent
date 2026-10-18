@@ -65,6 +65,13 @@ static float prv_compute_next_value(Pattern_State_t* state, uint32_t current_tim
     }
 
     const Pattern_Config_t* cfg = &state->config;
+    if (cfg->pattern_type == PATTERN_CONSTANT) {
+        if (cfg->param1 >= cfg->min_value && cfg->param1 <= cfg->max_value) {
+            return cfg->param1;
+        }
+        return cfg->initial_value;
+    }
+
     uint32_t elapsed_ms = current_time_ms - g_sim_start_ms;
     float elapsed_sec = (float)elapsed_ms / 1000.0f;
     float range = cfg->max_value - cfg->min_value;
@@ -87,13 +94,6 @@ static float prv_compute_next_value(Pattern_State_t* state, uint32_t current_tim
     
     switch (cfg->pattern_type) {
         
-        case PATTERN_CONSTANT:
-            /* Pure constant value specified by user (param1) or initial_value */
-            if (cfg->param1 >= cfg->min_value && cfg->param1 <= cfg->max_value) {
-                return cfg->param1;
-            }
-            return cfg->initial_value;
-            
         case PATTERN_RAMP: {
             /* Pure linear sawtooth sweep: sweeps from min to max linearly, then loops */
             float phase = fmodf(t_active, period) / period;

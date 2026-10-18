@@ -20,6 +20,8 @@ extern "C" {
 #define APP_CONTROL_FRAME_LENGTH         8u
 #define APP_CONTROL_RESPONSE_MASK        0x80u
 #define APP_CONTROL_OPCODE_TC1001        0x01u
+#define APP_CONTROL_OPCODE_START         0x03u
+#define APP_CONTROL_OPCODE_SET_CONST     0x10u
 
 typedef enum {
     APP_CONTROL_STATUS_OK = 0,

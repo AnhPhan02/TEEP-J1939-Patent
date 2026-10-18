@@ -140,14 +140,16 @@ static void prv_app_init(bool can_ok)
     J1939_Rx_Router_Init();
     App_Control_Can_Init();
     App_Gen_Init(APP_DEFAULT_CAN_BAUD_KBPS);
+#if TSMASTER_TC1001_CONNECT
     App_Gen_Load_Defaults();
+#endif
 
     if (can_ok) {
 #if TSMASTER_TC1001_CONNECT
         App_Gen_Start(0u, J1939_SCHED_MODE_SMOOTH);
         hal_console_write_line("[READY] Auto-started default J1939 transmission (EEC1, EEC2, CCVS1).");
 #else
-        hal_console_write_line("[READY] CAN active - generator STOPPED, waiting for UI TC1001.");
+        hal_console_write_line("[READY] CAN active - empty profile, waiting for UI SET_CONST then START.");
 #endif
     } else {
         hal_console_write_line("[READY] CAN not available - CLI active, retrying bus join.");

@@ -16,9 +16,10 @@
 #define OP_BUS_MONITOR_PERIOD_MS    100u    /* Error-state supervision period */
 #define OP_CAN_RX_POLL_BUDGET       3u      /* Bound foreground RX work per loop */
 
-/* 0: load the default profile but wait for TC1001; no periodic auto-TX.
- * 1: legacy standalone mode; auto-start once at boot only. CAN recovery
- * always leaves the generator STOPPED. */
+/* 0: UI-controlled mode; start with an empty profile and wait for
+ * SET_CONST followed by START.
+ * 1: legacy standalone mode; load and auto-start the default profile once
+ * at boot. CAN recovery always leaves the generator STOPPED. */
 #ifndef TSMASTER_TC1001_CONNECT
 #define TSMASTER_TC1001_CONNECT     0
 #endif
