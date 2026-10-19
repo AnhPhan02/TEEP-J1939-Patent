@@ -1,8 +1,9 @@
 /*
  * =============================================================================
  * FILE : j1939_signal_definitions.h
- * WHAT : J1939 PGN and SPN definitions with encoding properties.
- *        All values from SAE J1939-71 Application Layer standard.
+ * WHAT : J1939 PGN/SPN metadata generated from the 179-SPN master workbook.
+ * SOURCE: doc/J1939_179_SPN_Master_Specification_Table.xlsx,
+ *         sheet "Master 179 SPN Database", rows 6-184.
  * =============================================================================
  */
 
@@ -14,188 +15,208 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include <stdbool.h>
 
-/* =============================================================================
- * PGN NUMBERS (18-bit values embedded in 29-bit extended CAN ID)
- * ============================================================================= */
+#define J1939_SIGNAL_COUNT_EXPECTED       179u
+#define J1939_TX_PERIOD_NOT_FIXED_MS      0u
 
-/* Engine control */
-#define PGN_EEC1            61444u  /* 0xF004 Electronic Engine Controller 1   20 ms */
-#define PGN_EEC2            61442u  /* 0xF002 Electronic Engine Controller 2   50 ms */
-#define PGN_ENGINE_TEMP1    65262u  /* 0xFEEE Engine Temperature 1           1000 ms */
-#define PGN_ENGINE_FLUIDS1  65263u  /* 0xFEEF Engine Fluid Level/Pressure     500 ms */
-#define PGN_ENGINE_FLUIDS2  65270u  /* 0xFEF6 Engine Fluids 2                 500 ms */
+/* Canonical PGN identifiers from the master workbook. */
+#define PGN_EBS11            712u  /* 0x02C8 */
+#define PGN_CM1            57344u  /* 0xE000 */
+#define PGN_ERC1           61440u  /* 0xF000 */
+#define PGN_EBC1           61441u  /* 0xF001 */
+#define PGN_ETC1           61442u  /* 0xF002 */
+#define PGN_EEC2           61443u  /* 0xF003 */
+#define PGN_EEC1           61444u  /* 0xF004 */
+#define PGN_ETC2           61445u  /* 0xF005 */
+#define PGN_VDC2           61449u  /* 0xF009 */
+#define PGN_EAC2           61451u  /* 0xF00B */
+#define PGN_SWA            61469u  /* 0xF01D */
+#define PGN_HRFC           64777u  /* 0xFD09 */
+#define PGN_SBS            64791u  /* 0xFD17 */
+#define PGN_AUXC           64850u  /* 0xFD52 */
+#define PGN_ET4            64870u  /* 0xFD66 */
+#define PGN_EGF2           64930u  /* 0xFDA2 */
+#define PGN_PTODE          64932u  /* 0xFDA4 */
+#define PGN_DC2            64933u  /* 0xFDA5 */
+#define PGN_OELC           64972u  /* 0xFDCC */
+#define PGN_LC             65089u  /* 0xFE41 */
+#define PGN_TI1            65110u  /* 0xFE56 */
+#define PGN_FLI2           65115u  /* 0xFE5B */
+#define PGN_TIRE2          65118u  /* 0xFE5E */
+#define PGN_ET3            65129u  /* 0xFE69 */
+#define PGN_TCO1           65132u  /* 0xFE6C */
+#define PGN_HRW            65134u  /* 0xFE6E */
+#define PGN_ACC1           65135u  /* 0xFE6F */
+#define PGN_CVW            65136u  /* 0xFE70 */
+#define PGN_VP2            65165u  /* 0xFE8D */
+#define PGN_EI             65170u  /* 0xFE92 */
+#define PGN_ET2            65188u  /* 0xFEA4 */
+#define PGN_IMT1           65190u  /* 0xFEA6 */
+#define PGN_AIR1           65198u  /* 0xFEAE */
+#define PGN_FD             65213u  /* 0xFEBD */
+#define PGN_EBC2           65215u  /* 0xFEBF */
+#define PGN_VDHR           65217u  /* 0xFEC1 */
+#define PGN_EBS21          65222u  /* 0xFEC6 */
+#define PGN_DM1            65226u  /* 0xFECA */
+#define PGN_IO             65244u  /* 0xFEDC */
+#define PGN_EEC3           65247u  /* 0xFEDF */
+#define PGN_VD             65248u  /* 0xFEE0 */
+#define PGN_RC             65249u  /* 0xFEE1 */
+#define PGN_EC             65251u  /* 0xFEE3 */
+#define PGN_SHUTDOWN       65252u  /* 0xFEE4 */
+#define PGN_HOURS          65253u  /* 0xFEE5 */
+#define PGN_TD             65254u  /* 0xFEE6 */
+#define PGN_LFC            65257u  /* 0xFEE9 */
+#define PGN_VW             65258u  /* 0xFEEA */
+#define PGN_VI             65260u  /* 0xFEEC */
+#define PGN_ET1            65262u  /* 0xFEEE */
+#define PGN_EFL_P1         65263u  /* 0xFEEF */
+#define PGN_CCVS1          65265u  /* 0xFEF1 */
+#define PGN_LFE            65266u  /* 0xFEF2 */
+#define PGN_AMB            65269u  /* 0xFEF5 */
+#define PGN_IC1            65270u  /* 0xFEF6 */
+#define PGN_VEP            65271u  /* 0xFEF7 */
+#define PGN_AI             65273u  /* 0xFEF9 */
+#define PGN_B              65274u  /* 0xFEFA */
+#define PGN_DD             65276u  /* 0xFEFC */
+#define PGN_PROPB_FB       65457u  /* 0xFFB1 */
 
-/* Vehicle motion */
-#define PGN_CCVS1           65265u  /* 0xFEF1 Cruise Control/Vehicle Speed 1  100 ms */
-#define PGN_VDS             61449u  /* 0xF009 Vehicle Dynamic Stability         50 ms */
+/* Backward-compatible PGN aliases used by the existing firmware modules. */
+#define PGN_ENGINE_TEMP1       PGN_ET1
+#define PGN_ENGINE_FLUIDS1     PGN_EFL_P1
+#define PGN_ENGINE_FLUIDS2     PGN_IC1
+#define PGN_VDS                PGN_VDC2
+#define PGN_TRANS_FLUIDS1      65272u
+#define PGN_BRAKE_AIR_PRESS    PGN_B
+#define PGN_AT1_SCR_DOSING     61475u
+#define PGN_AT1_SCR_TANK       PGN_TI1
+#define PGN_DPF_TEMP1          64947u
+#define PGN_VOLTS_AMPS         PGN_VEP
+#define PGN_FAN_DRIVE          PGN_FD
+#define PGN_DASH               PGN_DD
+#define PGN_TIME_DATE          PGN_TD
+#define PGN_TURBO1             PGN_IMT1
+#define PGN_WATER_IN_FUEL      65279u
 
-/* Transmission */
-#define PGN_ETC2            61445u  /* 0xF005 Electronic Transmission Ctrl 2   50 ms */
-#define PGN_TRANS_FLUIDS1   65272u  /* 0xFEF8 Transmission Fluids 1          1000 ms */
+/* Legacy SPN names retained for source compatibility. */
+#define SPN_ENGINE_TORQUE_MODE         899u
+#define SPN_DRIVER_DEMAND_TORQUE       512u
+#define SPN_ACTUAL_ENGINE_TORQUE       513u
+#define SPN_ENGINE_SPEED               190u
+#define SPN_ENGINE_DEMAND_TORQUE       2432u
+#define SPN_ACCEL_PEDAL_POS            91u
+#define SPN_ENGINE_LOAD_PCT            92u
+#define SPN_COOLANT_TEMP               110u
+#define SPN_ENGINE_OIL_TEMP            175u
+#define SPN_ENGINE_OIL_LEVEL           98u
+#define SPN_ENGINE_OIL_PRESSURE        100u
+#define SPN_VEHICLE_SPEED              84u
+#define SPN_STEERING_ANGLE             1807u
+#define SPN_YAW_RATE                   1808u
+#define SPN_LATERAL_ACCEL              1809u
+#define SPN_LONG_ACCEL                 1810u
+#define SPN_TRANS_GEAR                 523u
+#define SPN_TRANS_OIL_PRESSURE         127u
+#define SPN_TRANS_OIL_TEMP             177u
+#define SPN_BRAKE_PEDAL_POS            521u
+#define SPN_BRAKE_APP_PRESSURE         116u
+#define SPN_RETARDER_TORQUE            520u
+#define SPN_SCR_DOSING_RATE            4331u
+#define SPN_SCR_TANK_LEVEL             1761u
+#define SPN_SCR_TANK_TEMP              3031u
+#define SPN_DPF_INLET_TEMP             3250u
+#define SPN_DPF_OUTLET_TEMP            3246u
+#define SPN_BARO_PRESSURE              108u
+#define SPN_CAB_TEMP                   170u
+#define SPN_AMBIENT_TEMP               171u
+#define SPN_AIR_INLET_TEMP             172u
+#define SPN_ROAD_SURFACE_TEMP          79u
+#define SPN_ALTERNATOR_CURRENT         115u
+#define SPN_BATTERY_VOLTAGE            167u
+#define SPN_BATTERY_POTENTIAL          168u
+#define SPN_FAN_DRIVE_PCT              1639u
+#define SPN_FAN_SPEED                  975u
+#define SPN_WASHER_FLUID_LEVEL         80u
+#define SPN_FUEL_LEVEL                 96u
+#define SPN_SECONDS                    959u
+#define SPN_MINUTES                    960u
+#define SPN_HOURS                      961u
+#define SPN_MONTH                      963u
+#define SPN_DAY                        962u
+#define SPN_YEAR                       964u
+#define SPN_TURBO_BOOST_PRESS          1127u
+#define SPN_TURBO_SPEED                103u
+#define SPN_WATER_IN_FUEL_FLAG         97u
+#define SPN_INTAKE_MANIFOLD_PRESSURE   102u
+#define SPN_ENGINE_FUEL_RATE           183u
+#define SPN_ENGINE_INST_FUEL_ECON      184u
+#define SPN_ENGINE_AVG_FUEL_ECON       185u
 
-/* Brakes */
-#define PGN_EBC1            61441u  /* 0xF001 Electronic Brake Controller 1   100 ms */
-#define PGN_ERC1            61440u  /* 0xF000 Electronic Retarder Controller   50 ms */
-#define PGN_BRAKE_AIR_PRESS 65274u  /* 0xFEFA Service Brake Air Pressure     1000 ms */
+typedef enum {
+    J1939_TX_MODE_PERIODIC = 0,
+    J1939_TX_MODE_ON_CHANGE,
+    J1939_TX_MODE_ENGINE_SPEED_DEPENDENT,
+    J1939_TX_MODE_ON_REQUEST
+} J1939_Transmission_Mode_t;
 
-/* Aftertreatment */
-#define PGN_AT1_SCR_DOSING  61475u  /* 0xF023 AT1 SCR Dosing Rate             100 ms */
-#define PGN_AT1_SCR_TANK    65110u  /* 0xFE56 AT1 SCR Tank Info              1000 ms */
-#define PGN_DPF_TEMP1       64947u  /* 0xFDB3 AT1 DPF Temperatures          1000 ms */
-
-/* Environment / ambient */
-#define PGN_AMB             65269u  /* 0xFEF5 Ambient Conditions             1000 ms */
-
-/* Electrical */
-#define PGN_VOLTS_AMPS      65271u  /* 0xFEF7 Electrical                     1000 ms */
-
-/* Fan */
-#define PGN_FAN_DRIVE       65213u  /* 0xFEBD Fan Drive                      1000 ms */
-
-/* Fuel / dash */
-#define PGN_DASH            65276u  /* 0xFEFC Dash Display (fuel level etc.) 1000 ms */
-
-/* Time */
-#define PGN_TIME_DATE       65254u  /* 0xFEE6 Time / Date                    1000 ms */
-
-/* Turbo */
-#define PGN_TURBO1          65190u  /* 0xFEA6 Turbocharger 1                  500 ms */
-
-/* Water in fuel */
-#define PGN_WATER_IN_FUEL   65279u  /* 0xFEFF Water In Fuel Indicator        1000 ms */
-#define PGN_LFE             65266u  /* 0xFEF2 Fuel Economy Liquid            100 ms */
-
-
-/* =============================================================================
- * SPN NUMBERS (unique signal identifiers inside PGN payloads)
- * ============================================================================= */
-
-/* ---- EEC1 (PGN 61444) ---- */
-#define SPN_ENGINE_TORQUE_MODE      899u
-#define SPN_DRIVER_DEMAND_TORQUE    512u
-#define SPN_ACTUAL_ENGINE_TORQUE    513u
-#define SPN_ENGINE_SPEED            190u
-#define SPN_ENGINE_DEMAND_TORQUE    2432u
-
-/* ---- EEC2 (PGN 61443) ---- */
-#define SPN_ACCEL_PEDAL_POS         91u
-#define SPN_ENGINE_LOAD_PCT         92u
-
-/* ---- Engine Temperature 1 (PGN 65262) ---- */
-#define SPN_COOLANT_TEMP            110u
-#define SPN_ENGINE_OIL_TEMP         175u
-
-/* ---- Engine Fluids 1 (PGN 65263) ---- */
-#define SPN_ENGINE_OIL_LEVEL        98u
-#define SPN_ENGINE_OIL_PRESSURE     100u
-
-/* ---- CCVS1 (PGN 65265) ---- */
-#define SPN_VEHICLE_SPEED           84u
-
-/* ---- VDS (PGN 61449) ---- */
-#define SPN_STEERING_ANGLE          1807u
-#define SPN_YAW_RATE                1808u
-#define SPN_LATERAL_ACCEL           1809u
-#define SPN_LONG_ACCEL              1810u
-
-/* ---- ETC2 (PGN 61445) ---- */
-#define SPN_TRANS_GEAR              523u
-
-/* ---- Transmission Fluids 1 (PGN 65272) ---- */
-#define SPN_TRANS_OIL_PRESSURE      127u
-#define SPN_TRANS_OIL_TEMP          177u
-
-/* ---- EBC1 (PGN 61441) ---- */
-#define SPN_BRAKE_PEDAL_POS         521u
-
-/* ---- Brake Air Pressure (PGN 65274) ---- */
-#define SPN_BRAKE_APP_PRESSURE      116u
-
-/* ---- ERC1 Retarder (PGN 61440) ---- */
-#define SPN_RETARDER_TORQUE         520u
-
-/* ---- AT1 SCR Dosing (PGN 61475) ---- */
-#define SPN_SCR_DOSING_RATE         4331u
-
-/* ---- AT1 SCR Tank (PGN 65110) ---- */
-#define SPN_SCR_TANK_LEVEL          1761u
-#define SPN_SCR_TANK_TEMP           3031u
-
-/* ---- DPF Temperature 1 (PGN 64947) ---- */
-#define SPN_DPF_INLET_TEMP          3250u
-#define SPN_DPF_OUTLET_TEMP         3246u
-
-/* ---- Ambient (PGN 65269) ---- */
-#define SPN_BARO_PRESSURE           108u
-#define SPN_CAB_TEMP                170u
-#define SPN_AMBIENT_TEMP            171u
-#define SPN_AIR_INLET_TEMP          172u
-#define SPN_ROAD_SURFACE_TEMP       79u
-
-/* ---- Electrical (PGN 65271) ---- */
-#define SPN_ALTERNATOR_CURRENT      115u
-#define SPN_BATTERY_VOLTAGE         167u
-#define SPN_BATTERY_POTENTIAL       168u
-
-/* ---- Fan Drive (PGN 65213) ---- */
-#define SPN_FAN_DRIVE_PCT           1639u
-#define SPN_FAN_SPEED               975u
-
-/* ---- Dash / Fuel (PGN 65276) ---- */
-#define SPN_WASHER_FLUID_LEVEL      80u
-#define SPN_FUEL_LEVEL              96u
-
-/* ---- Time/Date (PGN 65254) ---- */
-#define SPN_SECONDS                 959u
-#define SPN_MINUTES                 960u
-#define SPN_HOURS                   961u
-#define SPN_MONTH                   963u
-#define SPN_DAY                     962u
-#define SPN_YEAR                    964u
-
-/* ---- Turbocharger 1 (PGN 65190) ---- */
-#define SPN_TURBO_BOOST_PRESS       1127u
-#define SPN_TURBO_SPEED             103u
-
-/* ---- Water In Fuel (PGN 65279) ---- */
-#define SPN_WATER_IN_FUEL_FLAG      97u
-
-/* ---- Engine Fluids 2 / Intake Pressure (PGN 65270 / 0xFEF6) ---- */
-#define SPN_INTAKE_MANIFOLD_PRESSURE 102u
-
-/* ---- Fuel Economy Liquid (PGN 65266 / 0xFEF2) ---- */
-#define SPN_ENGINE_FUEL_RATE        183u
-#define SPN_ENGINE_INST_FUEL_ECON   184u
-#define SPN_ENGINE_AVG_FUEL_ECON    185u
-
-
-/* =============================================================================
- * SIGNAL PROPERTIES STRUCTURE
- * Contains everything needed to encode/decode one SPN
- * ============================================================================= */
 typedef struct {
-    uint32_t    pgn;              /* PGN this signal belongs to */
-    uint32_t    spn;              /* Unique SPN identifier */
-    const char* name;             /* Human-readable signal name */
-    const char* unit;             /* Engineering unit (e.g., "rpm", "degC") */
-    uint8_t     start_byte;       /* 1-based byte position in 8-byte payload (1..8) */
-    uint8_t     start_bit;        /* 1-based bit inside start_byte (1=LSB, 8=MSB) */
-    uint8_t     num_bits;         /* Width of signal in bits (1..32) */
-    float       resolution;       /* Physical units per raw LSB count */
-    float       offset;           /* Added after scaling: physical = raw*res + offset */
-    float       min_physical;     /* Minimum valid physical value (from J1939) */
-    float       max_physical;     /* Maximum valid physical value (from J1939) */
+    uint32_t                    pgn;
+    uint32_t                    spn;
+    const char*                 name;
+    const char*                 unit;
+    uint32_t                    tx_period_ms;  /* Period, maximum/fallback period, or 0 if not fixed. */
+    J1939_Transmission_Mode_t   tx_mode;
+    uint8_t                     start_byte;    /* 1-based byte position; may exceed 8 for TP payloads. */
+    uint8_t                     start_bit;     /* 1-based bit position inside start_byte. */
+    uint16_t                    num_bits;      /* Up to 1600 bits in the source metadata. */
+    float                       resolution;
+    float                       offset;
+    float                       min_physical;
+    float                       max_physical;
 } J1939_Signal_Definition_t;
 
+/* Runtime identity is the signal's database index. Unlike SPN, it is unique
+ * even when the same SPN legitimately appears in more than one PGN. */
+typedef uint16_t J1939_Signal_Id_t;
+typedef uint16_t J1939_Signal_Key_t;
 
-/* =============================================================================
- * DATABASE ACCESS FUNCTIONS
- * ============================================================================= */
+#define J1939_SIGNAL_ID_INVALID              ((J1939_Signal_Id_t)0xFFFFu)
+#define J1939_SIGNAL_KEY_INVALID             ((J1939_Signal_Key_t)0u)
+
+/* Frozen R0 UI keys for the three-signal MVP profile. These are protocol
+ * identifiers, not SPN numbers. */
+#define J1939_SIGNAL_KEY_ENGINE_SPEED        ((J1939_Signal_Key_t)103u)
+#define J1939_SIGNAL_KEY_ACCEL_PEDAL_POS     ((J1939_Signal_Key_t)97u)
+#define J1939_SIGNAL_KEY_VEHICLE_SPEED       ((J1939_Signal_Key_t)144u)
+
 extern const J1939_Signal_Definition_t J1939_Signal_Database[];
-extern const uint16_t                  J1939_Signal_Count;
+extern const uint16_t J1939_Signal_Count;
+extern const uint16_t J1939_Periodic_Signal_Count;
+extern const uint16_t J1939_Event_Signal_Count;
+extern const uint16_t J1939_On_Request_Signal_Count;
 
+/* SPN-only lookup returns the first match. Use the PGN+SPN lookup for SPNs
+ * that legitimately occur in more than one PGN (currently 928 and 1807). */
 const J1939_Signal_Definition_t* J1939_Find_Signal_By_SPN(uint32_t spn_number);
+/* Returns a definition only when the SPN has exactly one database entry.
+ * match_count may be NULL; otherwise it receives 0, 1, or the duplicate count. */
+const J1939_Signal_Definition_t* J1939_Find_Unique_Signal_By_SPN(
+    uint32_t spn_number,
+    uint16_t* match_count);
+const J1939_Signal_Definition_t* J1939_Find_Signal_By_PGN_SPN(uint32_t pgn,
+                                                              uint32_t spn_number);
+
+/* Unique runtime identity and R0 UI-key mapping. The MVP key table contains
+ * only Engine Speed, Accelerator Pedal Position 1 and Vehicle Speed. */
+bool J1939_Get_Signal_Id(const J1939_Signal_Definition_t* signal_def,
+                         J1939_Signal_Id_t* signal_id);
+const J1939_Signal_Definition_t* J1939_Find_Signal_By_Id(
+    J1939_Signal_Id_t signal_id);
+const J1939_Signal_Definition_t* J1939_Find_Signal_By_Key(
+    J1939_Signal_Key_t signal_key);
+bool J1939_Get_Signal_Key(J1939_Signal_Id_t signal_id,
+                          J1939_Signal_Key_t* signal_key);
 
 #ifdef __cplusplus
 }

@@ -24,13 +24,14 @@ static const char* const k_pattern_names[] = {
 };
 
 /* =============================================================================
- * CONFIG <spn> <type> <min> <max> [param1] [timeframe_ms] [t_start] [t_dur]
+ * CONFIG <spn|pgn:spn> <type> <min> <max>
+ *        [param1] [timeframe_ms] [t_start] [t_dur]
  * type: 0=Constant 1=Ramp 2=Sine 3=Triangle 4=Step 5=Square 6=RandomWalk 7=StateSeq
  * ============================================================================= */
 static void prv_cmd_config(char* args)
 {
     if (args == NULL) {
-        hal_console_write_line("[ERR] CONFIG invalid syntax. Expected: CONFIG <spn> <type> <min> <max> [param1] [timeframe_ms] [t_start] [t_dur]");
+        hal_console_write_line("[ERR] Expected: CONFIG <spn|pgn:spn> <type> <min> <max> [param1] [timeframe_ms] [t_start] [t_dur]");
         return;
     }
 
@@ -41,7 +42,19 @@ static void prv_cmd_config(char* args)
     }
 
     App_Signal_Request_t req;
-    req.spn = (uint32_t)strtoul(token, NULL, 10);
+    req.pgn = 0u;
+    char* separator = strchr(token, ':');
+    if (separator != NULL) {
+        if ((separator == token) || (separator[1] == '\0')) {
+            hal_console_write_line("[ERR] Use decimal PGN:SPN, for example 61451:928");
+            return;
+        }
+        *separator = '\0';
+        req.pgn = (uint32_t)strtoul(token, NULL, 10);
+        req.spn = (uint32_t)strtoul(separator + 1, NULL, 10);
+    } else {
+        req.spn = (uint32_t)strtoul(token, NULL, 10);
+    }
 
     token = strtok(NULL, " \t");
     if (token == NULL) {
@@ -67,9 +80,25 @@ static void prv_cmd_config(char* args)
     const J1939_Signal_Definition_t* def = NULL;
     switch (App_Gen_Config_Signal(&req, &def)) {
         case APP_CFG_UNKNOWN_SPN:
-            hal_console_write("[ERR] SPN ");
+            hal_console_write("[ERR] Signal ");
+            if (req.pgn != 0u) {
+                hal_console_write("PGN ");
+                hal_console_write_u32(req.pgn);
+                hal_console_write(" / ");
+            }
+            hal_console_write("SPN ");
             hal_console_write_u32(req.spn);
             hal_console_write_line(" not found in J1939 signal database!");
+            return;
+        case APP_CFG_AMBIGUOUS_SPN:
+            hal_console_write("[ERR] SPN ");
+            hal_console_write_u32(req.spn);
+            hal_console_write_line(" occurs in multiple PGNs. Use CONFIG <pgn>:<spn> ...");
+            return;
+        case APP_CFG_UNSUPPORTED_SIGNAL:
+            hal_console_write("[ERR] SPN ");
+            hal_console_write_u32(req.spn);
+            hal_console_write_line(" requires a multi-packet or non-scalar codec.");
             return;
         case APP_CFG_TABLE_FULL:
             hal_console_write_line("[ERR] Failed to register pattern (maximum signals reached).");
@@ -78,7 +107,9 @@ static void prv_cmd_config(char* args)
             break;
     }
 
-    hal_console_write("[ACK] CONFIG SPN ");
+    hal_console_write("[ACK] CONFIG PGN ");
+    hal_console_write_u32(def->pgn);
+    hal_console_write(" / SPN ");
     hal_console_write_u32(req.spn);
     hal_console_write(" (");
     hal_console_write(def->name);

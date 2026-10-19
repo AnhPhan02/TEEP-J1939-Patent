@@ -19,11 +19,22 @@ J1939_Link_Status_t J1939_Link_Send(uint32_t pgn,
                                     uint8_t priority,
                                     uint8_t source_address)
 {
+    return J1939_Link_Send_To(pgn, data, data_length, priority,
+                              source_address, J1939_ADDR_GLOBAL);
+}
+
+J1939_Link_Status_t J1939_Link_Send_To(uint32_t pgn,
+                                       const uint8_t* data,
+                                       uint8_t data_length,
+                                       uint8_t priority,
+                                       uint8_t source_address,
+                                       uint8_t destination_address)
+{
     J1939_Frame_Header_t hdr;
     hdr.pgn = pgn;
     hdr.priority = priority;
     hdr.source_address = source_address;
-    hdr.destination_address = J1939_ADDR_GLOBAL;
+    hdr.destination_address = destination_address;
 
     switch (hal_can_send_ext(J1939_Frame_Build_Id(&hdr), data, data_length)) {
         case HCAN_TX_OK:      return J1939_LINK_OK;

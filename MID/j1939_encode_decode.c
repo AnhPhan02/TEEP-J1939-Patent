@@ -21,14 +21,38 @@ static float prv_clamp_value(float value, float lo, float hi)
     return value;
 }
 
-/* =============================================================================
- * PRIVATE: Convert 1-based (byte, bit) to 0-based absolute bit index (0-63)
- * ============================================================================= */
-static uint8_t prv_get_absolute_start_bit(const J1939_Signal_Definition_t* signal_def)
+bool J1939_Is_Signal_Scalar_In_Buffer(
+    const J1939_Signal_Definition_t* signal_def,
+    uint16_t payload_len)
 {
-    uint8_t byte_0based = signal_def->start_byte - 1u;
-    uint8_t bit_0based  = signal_def->start_bit - 1u;
-    return (uint8_t)(byte_0based * 8u + bit_0based);
+    if ((signal_def == NULL) ||
+        (payload_len == 0u) ||
+        (signal_def->start_byte < 1u) ||
+        (signal_def->start_bit < 1u) || (signal_def->start_bit > 8u) ||
+        (signal_def->num_bits < 1u) || (signal_def->num_bits > 32u)) {
+        return false;
+    }
+
+    uint32_t start = ((uint32_t)signal_def->start_byte - 1u) * 8u +
+                     ((uint32_t)signal_def->start_bit - 1u);
+    uint32_t buffer_bits = (uint32_t)payload_len * 8u;
+    return (start < buffer_bits) &&
+           ((uint32_t)signal_def->num_bits <= (buffer_bits - start));
+}
+
+bool J1939_Is_Signal_8Byte_Scalar(const J1939_Signal_Definition_t* signal_def)
+{
+    return J1939_Is_Signal_Scalar_In_Buffer(signal_def, 8u);
+}
+
+/* =============================================================================
+ * PRIVATE: Convert 1-based (byte, bit) to a 0-based absolute bit index
+ * ============================================================================= */
+static uint32_t prv_get_absolute_start_bit(const J1939_Signal_Definition_t* signal_def)
+{
+    uint32_t byte_0based = (uint32_t)signal_def->start_byte - 1u;
+    uint32_t bit_0based  = (uint32_t)signal_def->start_bit - 1u;
+    return byte_0based * 8u + bit_0based;
 }
 
 /* =============================================================================
@@ -46,8 +70,8 @@ static bool prv_is_byte_aligned(const J1939_Signal_Definition_t* signal_def)
 static uint32_t prv_extract_aligned_bits(const uint8_t* payload,
                                           const J1939_Signal_Definition_t* signal_def)
 {
-    uint8_t byte_idx = signal_def->start_byte - 1u;
-    uint8_t num_bits = signal_def->num_bits;
+    uint32_t byte_idx = (uint32_t)signal_def->start_byte - 1u;
+    uint8_t num_bits = (uint8_t)signal_def->num_bits;
     
     switch (num_bits) {
         case 8:
@@ -82,15 +106,15 @@ static uint32_t prv_extract_aligned_bits(const uint8_t* payload,
  * Works for ANY bit alignment and ANY length (1-32 bits)
  * ============================================================================= */
 static uint32_t prv_extract_unaligned_bits(const uint8_t* payload,
-                                            uint8_t abs_start_bit,
+                                            uint32_t abs_start_bit,
                                             uint8_t num_bits)
 {
     uint32_t result = 0u;
     
     for (uint8_t i = 0u; i < num_bits; i++) {
-        uint8_t absolute_bit = abs_start_bit + i;
-        uint8_t byte_idx     = absolute_bit / 8u;
-        uint8_t bit_in_byte  = absolute_bit % 8u;
+        uint32_t absolute_bit = abs_start_bit + i;
+        uint32_t byte_idx     = absolute_bit / 8u;
+        uint8_t bit_in_byte   = (uint8_t)(absolute_bit % 8u);
         
         if (payload[byte_idx] & (1u << bit_in_byte)) {
             result |= (1u << i);
@@ -106,20 +130,19 @@ static uint32_t prv_extract_unaligned_bits(const uint8_t* payload,
 static uint32_t prv_extract_raw_value(const uint8_t* payload,
                                        const J1939_Signal_Definition_t* signal_def)
 {
-    /* Fast path: Byte-aligned signals (90% of J1939 signals) */
-    if (prv_is_byte_aligned(signal_def)) {
-        uint32_t raw = prv_extract_aligned_bits(payload, signal_def);
-        
-        /* If direct extraction worked (non-zero or valid zero), return it */
-        /* For small signals like 4 bits, the direct function returns 0 and we fall through */
-        if (raw != 0 || signal_def->num_bits >= 8) {
-            return raw;
-        }
+    /* Fast path exists only for complete 8/16/24/32-bit little-endian fields. */
+    if (prv_is_byte_aligned(signal_def) &&
+        ((signal_def->num_bits == 8u) ||
+         (signal_def->num_bits == 16u) ||
+         (signal_def->num_bits == 24u) ||
+         (signal_def->num_bits == 32u))) {
+        return prv_extract_aligned_bits(payload, signal_def);
     }
     
     /* Slow path: Unaligned or small signals (bit-by-bit) */
-    uint8_t abs_start_bit = prv_get_absolute_start_bit(signal_def);
-    return prv_extract_unaligned_bits(payload, abs_start_bit, signal_def->num_bits);
+    uint32_t abs_start_bit = prv_get_absolute_start_bit(signal_def);
+    return prv_extract_unaligned_bits(payload, abs_start_bit,
+                                      (uint8_t)signal_def->num_bits);
 }
 
 /* =============================================================================
@@ -129,8 +152,8 @@ static void prv_write_aligned_bits(uint8_t* payload,
                                     const J1939_Signal_Definition_t* signal_def,
                                     uint32_t value)
 {
-    uint8_t byte_idx = signal_def->start_byte - 1u;
-    uint8_t num_bits = signal_def->num_bits;
+    uint32_t byte_idx = (uint32_t)signal_def->start_byte - 1u;
+    uint8_t num_bits = (uint8_t)signal_def->num_bits;
     
     switch (num_bits) {
         case 8:
@@ -165,14 +188,14 @@ static void prv_write_aligned_bits(uint8_t* payload,
  * SLOW PATH: Bit-by-bit write for unaligned signals
  * ============================================================================= */
 static void prv_write_unaligned_bits(uint8_t* payload,
-                                      uint8_t abs_start_bit,
+                                      uint32_t abs_start_bit,
                                       uint8_t num_bits,
                                       uint32_t value)
 {
     for (uint8_t i = 0u; i < num_bits; i++) {
-        uint8_t absolute_bit = abs_start_bit + i;
-        uint8_t byte_idx     = absolute_bit / 8u;
-        uint8_t bit_in_byte  = absolute_bit % 8u;
+        uint32_t absolute_bit = abs_start_bit + i;
+        uint32_t byte_idx     = absolute_bit / 8u;
+        uint8_t bit_in_byte   = (uint8_t)(absolute_bit % 8u);
         
         if (value & (1u << i)) {
             payload[byte_idx] |=  (uint8_t)(1u << bit_in_byte);
@@ -198,8 +221,9 @@ static void prv_write_raw_value(uint8_t* payload,
     }
     
     /* Slow path: Unaligned or small signals */
-    uint8_t abs_start_bit = prv_get_absolute_start_bit(signal_def);
-    prv_write_unaligned_bits(payload, abs_start_bit, signal_def->num_bits, value);
+    uint32_t abs_start_bit = prv_get_absolute_start_bit(signal_def);
+    prv_write_unaligned_bits(payload, abs_start_bit,
+                             (uint8_t)signal_def->num_bits, value);
 }
 
 /* =============================================================================
@@ -209,30 +233,47 @@ static void prv_write_raw_value(uint8_t* payload,
 /* =============================================================================
  * J1939_Decode_Signal
  * ============================================================================= */
-float J1939_Decode_Signal(const J1939_Signal_Definition_t* signal_def, 
-                          const uint8_t* payload)
+bool J1939_Decode_Signal_Sized(
+    const J1939_Signal_Definition_t* signal_def,
+    const uint8_t* payload,
+    uint16_t payload_len,
+    float* out_physical_value)
 {
-    if ((signal_def == NULL) || (payload == NULL)) {
-        return 0.0f;
+    if ((payload == NULL) || (out_physical_value == NULL) ||
+        !J1939_Is_Signal_Scalar_In_Buffer(signal_def, payload_len)) {
+        return false;
     }
     
     /* Step 1: Extract raw integer from payload bits */
     uint32_t raw_value = prv_extract_raw_value(payload, signal_def);
     
     /* Step 2: Apply J1939 scaling formula: physical = (raw * resolution) + offset */
-    float physical_value = ((float)raw_value * signal_def->resolution) + signal_def->offset;
-    
+    *out_physical_value = ((float)raw_value * signal_def->resolution) +
+                          signal_def->offset;
+    return true;
+}
+
+float J1939_Decode_Signal(const J1939_Signal_Definition_t* signal_def,
+                          const uint8_t* payload)
+{
+    float physical_value = 0.0f;
+    (void)J1939_Decode_Signal_Sized(signal_def, payload, 8u,
+                                    &physical_value);
     return physical_value;
 }
 
 /* =============================================================================
  * J1939_Encode_Signal
  * ============================================================================= */
-bool J1939_Encode_Signal(const J1939_Signal_Definition_t* signal_def,
-                         float physical_value,
-                         uint8_t* payload)
+bool J1939_Encode_Signal_Sized(
+    const J1939_Signal_Definition_t* signal_def,
+    float physical_value,
+    uint8_t* payload,
+    uint16_t payload_len)
 {
-    if ((signal_def == NULL) || (payload == NULL)) {
+    if ((payload == NULL) ||
+        !J1939_Is_Signal_Scalar_In_Buffer(signal_def, payload_len) ||
+        (signal_def->resolution == 0.0f)) {
         return false;
     }
     
@@ -259,6 +300,13 @@ bool J1939_Encode_Signal(const J1939_Signal_Definition_t* signal_def,
     prv_write_raw_value(payload, signal_def, raw_int);
     
     return true;
+}
+
+bool J1939_Encode_Signal(const J1939_Signal_Definition_t* signal_def,
+                         float physical_value,
+                         uint8_t* payload)
+{
+    return J1939_Encode_Signal_Sized(signal_def, physical_value, payload, 8u);
 }
 
 /* =============================================================================

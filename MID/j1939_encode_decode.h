@@ -16,6 +16,24 @@ extern "C" {
 #include <stdbool.h>
 #include "j1939_signal_definitions.h"
 
+/* Scalar codec with an explicit payload boundary. A scalar is limited to
+ * 1..32 bits; byte arrays and strings (for example VIN) use a separate codec. */
+bool J1939_Is_Signal_Scalar_In_Buffer(
+    const J1939_Signal_Definition_t* signal_def,
+    uint16_t payload_len);
+
+bool J1939_Decode_Signal_Sized(
+    const J1939_Signal_Definition_t* signal_def,
+    const uint8_t* payload,
+    uint16_t payload_len,
+    float* out_physical_value);
+
+bool J1939_Encode_Signal_Sized(
+    const J1939_Signal_Definition_t* signal_def,
+    float physical_value,
+    uint8_t* payload,
+    uint16_t payload_len);
+
 /* =============================================================================
  * J1939_Decode_Signal - Extract SPN from 8-byte payload and convert to physical
  * 
@@ -48,6 +66,9 @@ float J1939_Decode_Signal(const J1939_Signal_Definition_t* signal_def,
 bool J1939_Encode_Signal(const J1939_Signal_Definition_t* signal_def,
                          float physical_value,
                          uint8_t* payload);
+
+/* Backward-compatible 8-byte boundary wrapper. */
+bool J1939_Is_Signal_8Byte_Scalar(const J1939_Signal_Definition_t* signal_def);
 
 /* =============================================================================
  * J1939_Is_Value_Valid - Check if physical value is within valid range

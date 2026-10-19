@@ -79,7 +79,9 @@ RESET → SYSTEM_INIT → BOARD_INIT → COMM_INIT → APP_INIT → RUN
 4. **COMM_INIT**:
    - CAN self test in loopback + silent mode (does not touch the bus).
    - Join the bus: CAN clock gate, pin remap, bit timing, filter, normal mode.
-5. **APP_INIT**: load default signals and auto-start transmission.
+5. **APP_INIT**: in UI-controlled mode start with an empty profile and wait for
+   `SET_CONST` followed by `START`; legacy standalone mode loads and auto-starts
+   the default signals.
 6. Start the watchdog.
 7. **RUN**: feed the watchdog, poll the CLI, run the generator, supervise the CAN error state. Bus-off recovery is automatic (ABOM=1).
 

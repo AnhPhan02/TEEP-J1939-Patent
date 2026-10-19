@@ -8,6 +8,7 @@
 #include "app_generator.h"
 #include "app_config.h"
 #include "j1939_link.h"
+#include "j1939_encode_decode.h"
 #include "hal_console.h"
 #include "hal_time.h"
 #include "hal_led.h"
@@ -118,9 +119,10 @@ static void prv_print_telemetry(void)
     for (uint8_t i = 0; i < display_count; i++) {
         const J1939_Sched_Signal_t* sig = J1939_Sched_Get_Signal(i);
         hal_console_write(" | SPN ");
-        hal_console_write_u32(sig->spn);
+        hal_console_write_u32(sig->def->spn);
         hal_console_write(": ");
-        hal_console_write_float(Pattern_Generator_Get_Value(sig->spn, 0.0f), 1);
+        hal_console_write_float(
+            Pattern_Generator_Get_Value(sig->signal_id, 0.0f), 1);
         hal_console_write(" ");
         hal_console_write(sig->def->unit);
     }
@@ -136,16 +138,23 @@ static void prv_print_telemetry(void)
 /* =============================================================================
  * PRIVATE: Register one default waveform
  * ============================================================================= */
-static void prv_add_default(uint32_t spn, Pattern_Type_t type, float min_v, float max_v, float period_s)
+static void prv_add_default(uint32_t pgn, uint32_t spn, Pattern_Type_t type,
+                            float min_v, float max_v, float period_s)
 {
-    const J1939_Signal_Definition_t* def = J1939_Find_Signal_By_SPN(spn);
+    const J1939_Signal_Definition_t* def =
+        J1939_Find_Signal_By_PGN_SPN(pgn, spn);
     if (def == NULL) {
+        return;
+    }
+
+    J1939_Signal_Id_t signal_id = J1939_SIGNAL_ID_INVALID;
+    if (!J1939_Get_Signal_Id(def, &signal_id)) {
         return;
     }
 
     Pattern_Config_t cfg;
     memset(&cfg, 0, sizeof(cfg));
-    cfg.spn = spn;
+    cfg.signal_id = signal_id;
     cfg.pattern_type = type;
     cfg.min_value = min_v;
     cfg.max_value = max_v;
@@ -168,6 +177,10 @@ void App_Gen_Init(uint32_t baud_kbps)
     Pattern_Generator_Init(hal_time_ms());
     J1939_Sched_Clear();
     J1939_Sched_Set_Tx_Log(APP_TXLOG_DEFAULT_ON != 0u);
+    s_is_running = false;
+    s_test_start_ms = 0u;
+    s_test_duration_ms = 0u;
+    s_total_frames_sent = 0u;
     s_baud_kbps = baud_kbps;
 }
 
@@ -187,17 +200,44 @@ uint32_t App_Gen_Get_Baud(void)
 App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
                                           const J1939_Signal_Definition_t** out_def)
 {
-    const J1939_Signal_Definition_t* def = J1939_Find_Signal_By_SPN(req->spn);
+    if (out_def != NULL) {
+        *out_def = NULL;
+    }
+    if (req == NULL) {
+        return APP_CFG_UNKNOWN_SPN;
+    }
+
+    const J1939_Signal_Definition_t* def = NULL;
+    if (req->pgn != 0u) {
+        def = J1939_Find_Signal_By_PGN_SPN(req->pgn, req->spn);
+    } 
+    
+    else {
+        uint16_t match_count = 0u;
+        def = J1939_Find_Unique_Signal_By_SPN(req->spn, &match_count);
+        if (match_count > 1u) {
+            return APP_CFG_AMBIGUOUS_SPN;
+        }
+    }
+    
+    if (def == NULL) {
+        return APP_CFG_UNKNOWN_SPN;
+    }
     if (out_def != NULL) {
         *out_def = def;
     }
-    if (def == NULL) {
+    if (!J1939_Is_Signal_8Byte_Scalar(def)) {
+        return APP_CFG_UNSUPPORTED_SIGNAL;
+    }
+
+    J1939_Signal_Id_t signal_id = J1939_SIGNAL_ID_INVALID;
+    if (!J1939_Get_Signal_Id(def, &signal_id)) {
         return APP_CFG_UNKNOWN_SPN;
     }
 
     Pattern_Config_t cfg;
     memset(&cfg, 0, sizeof(cfg));
-    cfg.spn = req->spn;
+    cfg.signal_id = signal_id;
     cfg.pattern_type = req->type;
     cfg.min_value = req->min_value;
     cfg.max_value = req->max_value;
@@ -254,14 +294,73 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
     return APP_CFG_OK;
 }
 
+App_Set_Const_Status_t App_Gen_Set_Constant_Raw(J1939_Signal_Key_t signal_key,
+                                                uint32_t raw_value,
+                                                uint32_t* applied_raw_value)
+{
+    const J1939_Signal_Definition_t* def =
+        J1939_Find_Signal_By_Key(signal_key);
+    if (def == NULL) {
+        return APP_SET_CONST_UNKNOWN_KEY;
+    }
+    if (!J1939_Is_Signal_8Byte_Scalar(def) ||
+        (def->resolution == 0.0f)) {
+        return APP_SET_CONST_UNSUPPORTED_SIGNAL;
+    }
+
+    const uint32_t max_raw = (def->num_bits >= 32u)
+        ? 0xFFFFFFFFu
+        : (((uint32_t)1u << def->num_bits) - 1u);
+    if (raw_value > max_raw) {
+        return APP_SET_CONST_VALUE_OUT_OF_RANGE;
+    }
+
+    const float physical_value = ((float)raw_value * def->resolution) +
+                                 def->offset;
+    if (!J1939_Is_Value_Valid(def, physical_value)) {
+        return APP_SET_CONST_VALUE_OUT_OF_RANGE;
+    }
+
+    App_Signal_Request_t request;
+    memset(&request, 0, sizeof(request));
+    request.pgn = def->pgn;
+    request.spn = def->spn;
+    request.type = PATTERN_CONSTANT;
+    request.min_value = def->min_physical;
+    request.max_value = def->max_physical;
+    request.param1 = physical_value;
+
+    switch (App_Gen_Config_Signal(&request, NULL)) {
+        case APP_CFG_OK:
+            if (applied_raw_value != NULL) {
+                *applied_raw_value = raw_value;
+            }
+            return APP_SET_CONST_OK;
+        case APP_CFG_TABLE_FULL:
+            return APP_SET_CONST_RESOURCE_FULL;
+        case APP_CFG_UNSUPPORTED_SIGNAL:
+            return APP_SET_CONST_UNSUPPORTED_SIGNAL;
+        default:
+            return APP_SET_CONST_UNKNOWN_KEY;
+    }
+}
+
+bool App_Gen_Has_Configured_Signals(void)
+{
+    return J1939_Sched_Get_Signal_Count() > 0u;
+}
+
 void App_Gen_Load_Defaults(void)
 {
     Pattern_Generator_Init(hal_time_ms());
     J1939_Sched_Clear();
 
-    prv_add_default(SPN_ENGINE_SPEED,    PATTERN_SINE, 800.0f, 3500.0f,  8.0f);
-    prv_add_default(SPN_ACCEL_PEDAL_POS, PATTERN_RAMP,   0.0f,  100.0f, 10.0f);
-    prv_add_default(SPN_VEHICLE_SPEED,   PATTERN_RAMP,   0.0f,  120.0f, 15.0f);
+    prv_add_default(PGN_EEC1,  SPN_ENGINE_SPEED,
+                    PATTERN_SINE, 800.0f, 3500.0f, 8.0f);
+    prv_add_default(PGN_EEC2,  SPN_ACCEL_PEDAL_POS,
+                    PATTERN_RAMP, 0.0f, 100.0f, 10.0f);
+    prv_add_default(PGN_CCVS1, SPN_VEHICLE_SPEED,
+                    PATTERN_RAMP, 0.0f, 120.0f, 15.0f);
 }
 
 void App_Gen_Clear(void)
@@ -355,13 +454,14 @@ void App_Gen_Print_Status(void)
         hal_console_write("  #");
         hal_console_write_u32(i + 1u);
         hal_console_write(": SPN ");
-        hal_console_write_u32(sig->spn);
+        hal_console_write_u32(sig->def->spn);
         hal_console_write(" (");
         hal_console_write(sig->def->name);
         hal_console_write(") in PGN ");
-        hal_console_write_u32(sig->pgn);
+        hal_console_write_u32(sig->def->pgn);
         hal_console_write(" | Cur Val: ");
-        hal_console_write_float(Pattern_Generator_Get_Value(sig->spn, 0.0f), 2);
+        hal_console_write_float(
+            Pattern_Generator_Get_Value(sig->signal_id, 0.0f), 2);
         hal_console_write(" ");
         hal_console_write_line(sig->def->unit);
     }

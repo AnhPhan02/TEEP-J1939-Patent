@@ -28,8 +28,7 @@ typedef enum {
 } J1939_Sched_Mode_t;
 
 typedef struct {
-    uint32_t spn;
-    uint32_t pgn;
+    J1939_Signal_Id_t signal_id;
     const J1939_Signal_Definition_t* def;
     uint32_t timeframe_ms;          /* 0 = use PGN period of current mode */
     float    t_start;
@@ -45,11 +44,12 @@ typedef struct {
 /* =============================================================================
  * DEBUG WATCH - read it live with a debugger (Live Watch / ST-LINK memory view).
  * Follows one signal from physical value to the bytes handed to the CAN
- * controller. Write watch_spn from the debugger to follow another SPN.
+ * controller. Write watch_signal_id from the debugger to follow another
+ * unique database signal.
  * ============================================================================= */
 typedef struct {
-    uint32_t watch_spn;         /* SPN to follow (default 190 Engine Speed) - writable */
-    float    value;             /* Physical value encoded for watch_spn */
+    J1939_Signal_Id_t watch_signal_id; /* Defaults to Engine Speed database index */
+    float    value;             /* Physical value encoded for watch_signal_id */
     float    decoded;           /* Value decoded back from the payload (round-trip check) */
     uint32_t can_id;            /* 29-bit ID of the frame that carried it */
     uint8_t  data[8];           /* Payload exactly as handed to the CAN controller */

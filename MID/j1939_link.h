@@ -38,6 +38,15 @@ J1939_Link_Status_t J1939_Link_Send(uint32_t pgn,
                                     uint8_t priority,
                                     uint8_t source_address);
 
+/* Send one PGN with an explicit destination address. For a PDU2 PGN the
+ * destination is ignored by the J1939 identifier format. */
+J1939_Link_Status_t J1939_Link_Send_To(uint32_t pgn,
+                                       const uint8_t* data,
+                                       uint8_t data_length,
+                                       uint8_t priority,
+                                       uint8_t source_address,
+                                       uint8_t destination_address);
+
 /* Poll for one received J1939 frame */
 bool J1939_Link_Receive(J1939_Frame_Header_t* hdr, uint8_t* data, uint8_t* data_length);
 
