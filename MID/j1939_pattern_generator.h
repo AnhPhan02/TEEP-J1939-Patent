@@ -16,8 +16,12 @@ extern "C" {
 #include <stdbool.h>
 #include "j1939_signal_definitions.h"
 
-/* Maximum number of simultaneously registered signals */
-#define PATTERN_GEN_MAX_SIGNALS  65u
+/* Maximum number of simultaneously registered signals. Eight covers the
+ * current three-signal UI profile while preserving RAM for CAN queues and TP.
+ * A larger product profile may override this at compile time. */
+#ifndef PATTERN_GEN_MAX_SIGNALS
+#define PATTERN_GEN_MAX_SIGNALS  8u
+#endif
 
 /* =============================================================================
  * PATTERN TYPE ENUM

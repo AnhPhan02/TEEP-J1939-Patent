@@ -19,7 +19,9 @@ extern "C" {
 #include "j1939_pattern_generator.h"
 
 #define J1939_SCHED_MAX_SIGNALS  PATTERN_GEN_MAX_SIGNALS
-#define J1939_SCHED_MAX_PGNS     35u
+#ifndef J1939_SCHED_MAX_PGNS
+#define J1939_SCHED_MAX_PGNS     8u
+#endif
 
 typedef enum {
     J1939_SCHED_MODE_SMOOTH = 0,    /* High-fidelity waveform (10-25 ms per PGN) */

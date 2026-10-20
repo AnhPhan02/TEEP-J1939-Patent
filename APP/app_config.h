@@ -11,6 +11,14 @@
 #define APP_CONSOLE_BAUD            115200u
 #define APP_CLI_BUF_LEN             128u
 
+/* Serial CLI is a development/service feature. The production TSMaster build
+ * keeps it compiled out so the linker can discard the parser and the large
+ * newlib number-conversion dependency tree. Override with
+ * -DAPP_CLI_ENABLE=1 for a diagnostic build. */
+#ifndef APP_CLI_ENABLE
+#define APP_CLI_ENABLE              0
+#endif
+
 #define APP_DEFAULT_CAN_BAUD_KBPS   250u        /* SAE J1939-11 standard rate */
 #define APP_TELEMETRY_PERIOD_MS     250u
 #define APP_TELEMETRY_SHOW_SIGNALS  0u          /* 0: frame count only, 1: also print SPN values */
