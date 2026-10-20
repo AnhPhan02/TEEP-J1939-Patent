@@ -18,10 +18,10 @@
 
 /* 0: UI-controlled mode; start with an empty profile and wait for
  * SET_CONST followed by START.
- * 1: legacy standalone mode; load and auto-start the default profile once
- * at boot. CAN recovery always leaves the generator STOPPED. */
-#ifndef TSMASTER_TC1001_CONNECT
-#define TSMASTER_TC1001_CONNECT     0
+ * 1: standalone demonstration mode; load and auto-start the default profile
+ * once at boot. CAN recovery always leaves the generator STOPPED. */
+#ifndef APP_BOOT_AUTOSTART_DEFAULTS
+#define APP_BOOT_AUTOSTART_DEFAULTS 0
 #endif
 
 #define OP_LED_FAULT_HALF_MS        50u     /* 10 Hz blink = CAN not started */
