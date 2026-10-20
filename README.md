@@ -9,7 +9,7 @@ OP   op_main       main() + system lifecycle (clock -> board -> CAN -> app -> ru
      op_fault      Fault policy: leave CAN bus, LED on, debugger break or reset
      op_config.h   Watchdog, CAN self test, retry/supervision periods
       │
-APP  app_cli       Serial command parser: CONFIG START STOP CLEAR BAUD STATUS RESET
+APP  app_cli       Optional development CLI: CONFIG START STOP CLEAR BAUD STATUS RESET
      app_generator Run state, modes, telemetry, LED, CAN diagnostics printing
      app_config.h  Application tunables (console baud, default CAN bitrate, ...)
       │
@@ -79,9 +79,9 @@ RESET → SYSTEM_INIT → BOARD_INIT → COMM_INIT → APP_INIT → RUN
 4. **COMM_INIT**:
    - CAN self test in loopback + silent mode (does not touch the bus).
    - Join the bus: CAN clock gate, pin remap, bit timing, filter, normal mode.
-5. **APP_INIT**: in UI-controlled mode start with an empty profile and wait for
-   `SET_CONST` followed by `START`; legacy standalone mode loads and auto-starts
-   the default signals.
+5. **APP_INIT**: the production UI build starts with an empty profile and waits
+   for `SET_CONST` followed by `START`. Set `APP_BOOT_AUTOSTART_DEFAULTS=1` only
+   for a standalone demonstration build that loads and starts default signals.
 6. Start the watchdog.
 7. **RUN**: feed the watchdog, poll the CLI, run the generator, supervise the CAN error state. Bus-off recovery is automatic (ABOM=1).
 
@@ -95,7 +95,25 @@ make flash      # ST-LINK_CLI over SWD, verify, reset
 make clean
 ```
 
-Current footprint: Flash ≈ 39 KB / 64 KB, RAM ≈ 12 KB / 20 KB.
+The default build is the production TSMaster profile: serial CLI disabled,
+standalone auto-start disabled, and capacity for eight simultaneous signals /
+eight PGNs. Feature and capacity values can be overridden on the make command
+line; run `make clean` before switching them because make does not track CFLAGS
+changes:
+
+```sh
+make clean
+make APP_CLI_ENABLE=1                     # development/service CLI
+make APP_BOOT_AUTOSTART_DEFAULTS=1        # standalone demonstration
+make PATTERN_GEN_MAX_SIGNALS=16 J1939_SCHED_MAX_PGNS=16
+```
+
+Measured with GCC 15.3.1 and the current source:
+
+| Profile | Flash (`text + data`) | RAM (`data + bss`, including reserved heap/stack) |
+|---|---:|---:|
+| Production UI, CLI off, capacity 8/8 | 33,948 B / 64 KiB | 4,344 B / 20 KiB |
+| Diagnostic CLI, capacity 8/8 | 53,196 B / 64 KiB | 4,872 B / 20 KiB |
 
 ## Pending / next steps
 
@@ -104,9 +122,9 @@ Current footprint: Flash ≈ 39 KB / 64 KB, RAM ≈ 12 KB / 20 KB.
 | CAN RX interrupt + ring buffer, TX software queue (TMEIE) instead of 2 ms polling wait | Proposed |
 | Hardware-timer based TX scheduling (jitter) | Proposed |
 | Fault record kept across reset (`.noinit` RAM section) | Proposed |
-| J1939: fix `PGN_EEC2` (61442 → 61443), implement `t_start`/`t_dur` windows | Open |
+| J1939: `PGN_EEC2` corrected to 61443; implement `t_start`/`t_dur` windows | Partially complete |
 | J1939: Request PGN, Address Claim (J1939-81), TP BAM/CMDT (J1939-21), DM1 (J1939-73) | Missing |
-| Host unit tests + CI | Missing |
+| Host tests for codec, signal identity and TC1001/SET_CONST/START flow | Present; CI missing |
 
 ## References
 
