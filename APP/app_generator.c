@@ -350,6 +350,24 @@ bool App_Gen_Has_Configured_Signals(void)
     return J1939_Sched_Get_Signal_Count() > 0u;
 }
 
+bool App_Gen_Is_Signal_Configured(J1939_Signal_Key_t signal_key)
+{
+    const J1939_Signal_Definition_t* target =
+        J1939_Find_Signal_By_Key(signal_key);
+    if (target == NULL) {
+        return false;
+    }
+
+    const uint8_t count = J1939_Sched_Get_Signal_Count();
+    for (uint8_t i = 0u; i < count; i++) {
+        const J1939_Sched_Signal_t* signal = J1939_Sched_Get_Signal(i);
+        if ((signal != NULL) && (signal->def == target)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void App_Gen_Load_Defaults(void)
 {
     Pattern_Generator_Init(hal_time_ms());

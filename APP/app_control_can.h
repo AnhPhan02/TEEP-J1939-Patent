@@ -20,8 +20,37 @@ extern "C" {
 #define APP_CONTROL_FRAME_LENGTH         8u
 #define APP_CONTROL_RESPONSE_MASK        0x80u
 #define APP_CONTROL_OPCODE_TC1001        0x01u
+#define APP_CONTROL_OPCODE_STOP          0x02u
 #define APP_CONTROL_OPCODE_START         0x03u
+#define APP_CONTROL_OPCODE_GET_STATUS    0x04u
 #define APP_CONTROL_OPCODE_SET_CONST     0x10u
+
+#define APP_CONTROL_PROTOCOL_MAJOR       1u
+#define APP_CONTROL_PROTOCOL_MINOR       0u
+#define APP_CONTROL_SCHEMA_VERSION       1u
+
+#define APP_CONTROL_CAPABILITY_STOP          (1u << 0)
+#define APP_CONTROL_CAPABILITY_GET_STATUS    (1u << 1)
+#define APP_CONTROL_CAPABILITY_DEDUP_CACHE   (1u << 2)
+#define APP_CONTROL_CAPABILITY_SET_CONST     (1u << 3)
+#define APP_CONTROL_CAPABILITY_START         (1u << 4)
+#define APP_CONTROL_CAPABILITIES             \
+    (APP_CONTROL_CAPABILITY_STOP |           \
+     APP_CONTROL_CAPABILITY_GET_STATUS |     \
+     APP_CONTROL_CAPABILITY_DEDUP_CACHE |    \
+     APP_CONTROL_CAPABILITY_SET_CONST |      \
+     APP_CONTROL_CAPABILITY_START)
+
+#define APP_CONTROL_RUNTIME_RUNNING                  (1u << 0)
+#define APP_CONTROL_RUNTIME_ENGINE_SPEED_CONFIGURED  (1u << 1)
+
+/* GET_STATUS response: detail = APP_CONTROL_RUNTIME_* flags. The LE value32
+ * bytes are protocol major, protocol minor, schema and capability mask. */
+#define APP_CONTROL_PROTOCOL_INFO_VALUE                         \
+    ((uint32_t)APP_CONTROL_PROTOCOL_MAJOR |                     \
+     ((uint32_t)APP_CONTROL_PROTOCOL_MINOR << 8) |              \
+     ((uint32_t)APP_CONTROL_SCHEMA_VERSION << 16) |             \
+     ((uint32_t)APP_CONTROL_CAPABILITIES << 24))
 
 typedef enum {
     APP_CONTROL_STATUS_OK = 0,
@@ -44,6 +73,8 @@ typedef struct {
     uint32_t responses_queued;
     uint32_t responses_busy;
     uint32_t responses_failed;
+    uint32_t duplicate_replays;
+    uint32_t duplicate_conflicts;
 } App_Control_Can_Stats_t;
 
 /* Reset protocol statistics and register the handler with the MID RX router. */
