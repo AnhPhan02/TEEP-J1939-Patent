@@ -20,8 +20,10 @@ extern "C" {
 
 #define J1939_SCHED_MAX_SIGNALS  PATTERN_GEN_MAX_SIGNALS
 #ifndef J1939_SCHED_MAX_PGNS
-#define J1939_SCHED_MAX_PGNS     8u
+#define J1939_SCHED_MAX_PGNS     11u
 #endif
+
+#define J1939_TX_QUEUE_CAPACITY  32u
 
 typedef enum {
     J1939_SCHED_MODE_SMOOTH = 0,    /* High-fidelity waveform (10-25 ms per PGN) */
@@ -38,10 +40,24 @@ typedef struct {
 } J1939_Sched_Signal_t;
 
 typedef struct {
-    uint16_t sent;                  /* Frames queued successfully */
-    uint16_t busy;                  /* Frames dropped: controller mailboxes full */
-    uint16_t failed;                /* Frames dropped: driver error */
+    uint16_t enqueued;              /* Due frames accepted by the SW queue */
+    uint16_t sent;                  /* Frames handed to a hardware mailbox */
+    uint16_t busy;                  /* Queue drain paused: all HW mailboxes busy */
+    uint16_t failed;                /* Driver errors; frame retained for retry */
+    uint16_t dropped;               /* SW queue full */
+    uint16_t deadline_missed;       /* One or more periods were skipped */
 } J1939_Sched_Tick_Result_t;
+
+typedef struct {
+    uint32_t enqueued;
+    uint32_t sent;
+    uint32_t busy;
+    uint32_t failed;
+    uint32_t dropped;
+    uint32_t deadline_missed;
+    uint8_t queued;
+    uint8_t high_water;
+} J1939_Sched_Stats_t;
 
 /* =============================================================================
  * DEBUG WATCH - read it live with a debugger (Live Watch / ST-LINK memory view).
@@ -75,6 +91,9 @@ bool J1939_Sched_Add_Signal(const J1939_Signal_Definition_t* def,
                             float t_dur,
                             uint32_t now_ms);
 
+/* Read-only admission check used to keep APP registration atomic. */
+bool J1939_Sched_Can_Add_Signal(const J1939_Signal_Definition_t* def);
+
 void J1939_Sched_Set_Mode(J1939_Sched_Mode_t mode);
 J1939_Sched_Mode_t J1939_Sched_Get_Mode(void);
 
@@ -87,6 +106,7 @@ void J1939_Sched_Tick(uint32_t now_ms, J1939_Sched_Tick_Result_t* result);
 uint8_t J1939_Sched_Get_Signal_Count(void);
 const J1939_Sched_Signal_t* J1939_Sched_Get_Signal(uint8_t index);
 uint8_t J1939_Sched_Get_PGN_Count(void);
+void J1939_Sched_Get_Stats(J1939_Sched_Stats_t* stats);
 
 /* $TX frame log on the console (see j1939_tx_scheduler.c for the format) */
 void     J1939_Sched_Set_Tx_Log(bool enable);
