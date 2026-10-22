@@ -235,13 +235,10 @@ hal_can_tx_status_t hal_can_send_ext(uint32_t ext_id, const uint8_t* data, uint8
         return HCAN_TX_ERROR;
     }
 
-    uint32_t start = hal_time_ms();
-    while ((CAN1->TSR & CAN_TSR_TME_ALL) == 0u) {
-        if ((hal_time_ms() - start) > BOARD_CAN_TX_TIMEOUT_MS) {
-            /* Nobody ACKs / bus overloaded: drop pending frames, keep the scheduler alive */
-            CAN1->TSR = CAN_TSR_ABRQ0 | CAN_TSR_ABRQ1 | CAN_TSR_ABRQ2;
-            return HCAN_TX_TIMEOUT;
-        }
+    if ((CAN1->TSR & CAN_TSR_TME_ALL) == 0u) {
+        /* Non-blocking backpressure. The MID software queue owns retry policy;
+         * never abort unrelated frames that are already in the mailboxes. */
+        return HCAN_TX_TIMEOUT;
     }
 
     uint32_t mb = (CAN1->TSR & CAN_TSR_CODE_Msk) >> CAN_TSR_CODE_Pos;   /* next empty mailbox */
