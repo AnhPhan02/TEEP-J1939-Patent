@@ -184,17 +184,61 @@ typedef uint16_t J1939_Signal_Key_t;
 #define J1939_SIGNAL_ID_INVALID              ((J1939_Signal_Id_t)0xFFFFu)
 #define J1939_SIGNAL_KEY_INVALID             ((J1939_Signal_Key_t)0u)
 
-/* Frozen R0 UI keys for the three-signal MVP profile. These are protocol
- * identifiers, not SPN numbers. */
-#define J1939_SIGNAL_KEY_ENGINE_SPEED        ((J1939_Signal_Key_t)103u)
-#define J1939_SIGNAL_KEY_ACCEL_PEDAL_POS     ((J1939_Signal_Key_t)97u)
-#define J1939_SIGNAL_KEY_VEHICLE_SPEED       ((J1939_Signal_Key_t)144u)
+/* Stable UI keys are the 1-based row numbers in the master workbook. They are
+ * protocol identifiers, not SPN numbers and not indexes in the sorted C
+ * database. */
+#define J1939_SIGNAL_KEY_VDC2_STEERING_ANGLE       ((J1939_Signal_Key_t)12u)
+#define J1939_SIGNAL_KEY_VDC2_YAW_RATE             ((J1939_Signal_Key_t)13u)
+#define J1939_SIGNAL_KEY_VDC2_LATERAL_ACCEL        ((J1939_Signal_Key_t)14u)
+#define J1939_SIGNAL_KEY_VDC2_LONG_ACCEL           ((J1939_Signal_Key_t)15u)
+#define J1939_SIGNAL_KEY_TCO1_DRIVER1_STATE        ((J1939_Signal_Key_t)24u)
+#define J1939_SIGNAL_KEY_TCO1_OVERSPEED            ((J1939_Signal_Key_t)25u)
+#define J1939_SIGNAL_KEY_TCO1_DRIVER2_STATE        ((J1939_Signal_Key_t)26u)
+#define J1939_SIGNAL_KEY_TCO1_SYSTEM_EVENT         ((J1939_Signal_Key_t)27u)
+#define J1939_SIGNAL_KEY_TCO1_HANDLING_INFO        ((J1939_Signal_Key_t)28u)
+#define J1939_SIGNAL_KEY_TCO1_PERFORMANCE          ((J1939_Signal_Key_t)29u)
+#define J1939_SIGNAL_KEY_TCO1_DIRECTION            ((J1939_Signal_Key_t)30u)
+#define J1939_SIGNAL_KEY_TCO1_OUTPUT_SHAFT_SPEED   ((J1939_Signal_Key_t)31u)
+#define J1939_SIGNAL_KEY_TCO1_VEHICLE_SPEED        ((J1939_Signal_Key_t)32u)
+#define J1939_SIGNAL_KEY_PTODE_ENGAGED             ((J1939_Signal_Key_t)38u)
+#define J1939_SIGNAL_KEY_HRW_FRONT_LEFT_SPEED      ((J1939_Signal_Key_t)59u)
+#define J1939_SIGNAL_KEY_HRW_FRONT_RIGHT_SPEED     ((J1939_Signal_Key_t)60u)
+#define J1939_SIGNAL_KEY_HRW_REAR_LEFT_SPEED       ((J1939_Signal_Key_t)61u)
+#define J1939_SIGNAL_KEY_HRW_REAR_RIGHT_SPEED      ((J1939_Signal_Key_t)62u)
+#define J1939_SIGNAL_KEY_FLI2_RIGHT_STATUS         ((J1939_Signal_Key_t)67u)
+#define J1939_SIGNAL_KEY_FLI2_LEFT_STATUS          ((J1939_Signal_Key_t)68u)
+#define J1939_SIGNAL_KEY_ETC1_SHIFT_IN_PROCESS     ((J1939_Signal_Key_t)74u)
+#define J1939_SIGNAL_KEY_ETC1_CLUTCH_SLIP          ((J1939_Signal_Key_t)75u)
+#define J1939_SIGNAL_KEY_EAC2_AXLE_LOCATION        ((J1939_Signal_Key_t)83u)
+#define J1939_SIGNAL_KEY_ERC1_TORQUE_MODE          ((J1939_Signal_Key_t)84u)
+#define J1939_SIGNAL_KEY_ERC1_ACTUAL_TORQUE        ((J1939_Signal_Key_t)85u)
+#define J1939_SIGNAL_KEY_ERC1_DRIVER_DEMAND        ((J1939_Signal_Key_t)86u)
+#define J1939_SIGNAL_KEY_ERC1_MAX_TORQUE           ((J1939_Signal_Key_t)87u)
+#define J1939_SIGNAL_KEY_EEC2_LOW_IDLE_SWITCH      ((J1939_Signal_Key_t)94u)
+#define J1939_SIGNAL_KEY_EEC2_KICKDOWN_SWITCH      ((J1939_Signal_Key_t)95u)
+#define J1939_SIGNAL_KEY_EEC2_SPEED_LIMIT_STATUS   ((J1939_Signal_Key_t)96u)
+#define J1939_SIGNAL_KEY_ACCEL_PEDAL_POS           ((J1939_Signal_Key_t)97u)
+#define J1939_SIGNAL_KEY_EEC2_ENGINE_LOAD          ((J1939_Signal_Key_t)98u)
+#define J1939_SIGNAL_KEY_EEC2_ACCEL_PEDAL_POS2     ((J1939_Signal_Key_t)99u)
+#define J1939_SIGNAL_KEY_ENGINE_SPEED               ((J1939_Signal_Key_t)103u)
+#define J1939_SIGNAL_KEY_EBS11_ABS_ACTIVE          ((J1939_Signal_Key_t)113u)
+#define J1939_SIGNAL_KEY_EBS11_BRAKE_LIGHT         ((J1939_Signal_Key_t)114u)
+#define J1939_SIGNAL_KEY_EBC1_ABS_ACTIVE           ((J1939_Signal_Key_t)122u)
+#define J1939_SIGNAL_KEY_EBC1_BRAKE_SWITCH         ((J1939_Signal_Key_t)123u)
+#define J1939_SIGNAL_KEY_EBC1_PEDAL_POSITION       ((J1939_Signal_Key_t)124u)
+#define J1939_SIGNAL_KEY_EBC1_CONTROLLER_SA        ((J1939_Signal_Key_t)125u)
+#define J1939_SIGNAL_KEY_EBC1_HALT_BRAKE           ((J1939_Signal_Key_t)126u)
+#define J1939_SIGNAL_KEY_VEHICLE_SPEED              ((J1939_Signal_Key_t)144u)
+
+#define J1939_UI_PROFILE_40_SIGNAL_COUNT      40u
 
 extern const J1939_Signal_Definition_t J1939_Signal_Database[];
 extern const uint16_t J1939_Signal_Count;
 extern const uint16_t J1939_Periodic_Signal_Count;
 extern const uint16_t J1939_Event_Signal_Count;
 extern const uint16_t J1939_On_Request_Signal_Count;
+extern const J1939_Signal_Key_t J1939_UI_Profile_40_Keys[];
+extern const uint16_t J1939_UI_Profile_40_Key_Count;
 
 /* SPN-only lookup returns the first match. Use the PGN+SPN lookup for SPNs
  * that legitimately occur in more than one PGN (currently 928 and 1807). */
@@ -207,8 +251,7 @@ const J1939_Signal_Definition_t* J1939_Find_Unique_Signal_By_SPN(
 const J1939_Signal_Definition_t* J1939_Find_Signal_By_PGN_SPN(uint32_t pgn,
                                                               uint32_t spn_number);
 
-/* Unique runtime identity and R0 UI-key mapping. The MVP key table contains
- * only Engine Speed, Accelerator Pedal Position 1 and Vehicle Speed. */
+/* Unique runtime identity and stable UI-key mapping. */
 bool J1939_Get_Signal_Id(const J1939_Signal_Definition_t* signal_def,
                          J1939_Signal_Id_t* signal_id);
 const J1939_Signal_Definition_t* J1939_Find_Signal_By_Id(

@@ -11,12 +11,19 @@
 
 static const J1939_PGN_Timing_t k_pgn_timing[] = {
     /* pgn                   smooth  sae  stress prio  source address */
+    { PGN_EBS11,              10u,   10u,   5u,  6u, J1939_SA_BRAKES         },
+    { PGN_ETC1,               10u,   10u,   5u,  6u, J1939_SA_TRANSMISSION_1 },
+    { PGN_VDC2,               10u,   10u,   5u,  6u, J1939_SA_BRAKES         },
+    { PGN_EAC2,               20u,   20u,  10u,  6u, J1939_SA_ENGINE_1       },
+    { PGN_HRW,                20u,   20u,  10u,  2u, J1939_SA_BRAKES         },
+    { PGN_TCO1,               50u,   50u,  25u,  3u, J1939_SA_ENGINE_1       },
     { PGN_EEC1,               10u,   20u,   5u,  3u, J1939_SA_ENGINE_1       },
-    { PGN_EEC2,               15u,   50u,  10u,  3u, J1939_SA_ENGINE_1       },
-    { PGN_ERC1,               15u,   50u,  10u,  3u, J1939_SA_ENGINE_1       },
-    { PGN_VDS,                15u,   50u,  10u,  3u, J1939_SA_ENGINE_1       },
+    { PGN_EEC2,               50u,   50u,  10u,  3u, J1939_SA_ENGINE_1       },
+    { PGN_ERC1,              100u,  100u,  20u,  3u, J1939_SA_ENGINE_1       },
     { PGN_ETC2,               15u,   50u,  10u,  3u, J1939_SA_TRANSMISSION_1 },
-    { PGN_EBC1,               20u,  100u,  20u,  6u, J1939_SA_BRAKES         },
+    { PGN_EBC1,              100u,  100u,  20u,  6u, J1939_SA_BRAKES         },
+    { PGN_FLI2,              100u,  100u,  20u,  6u, J1939_SA_ENGINE_1       },
+    { PGN_PTODE,             100u,  100u,  20u,  6u, J1939_SA_ENGINE_1       },
     { PGN_CCVS1,              20u,  100u,  20u,  6u, J1939_SA_ENGINE_1       },
     { PGN_LFE,                20u,  100u,  20u,  6u, J1939_SA_ENGINE_1       },
     { PGN_AT1_SCR_DOSING,     20u,  100u,  20u,  6u, J1939_SA_ENGINE_1       },

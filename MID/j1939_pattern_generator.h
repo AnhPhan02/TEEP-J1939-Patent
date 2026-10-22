@@ -16,11 +16,9 @@ extern "C" {
 #include <stdbool.h>
 #include "j1939_signal_definitions.h"
 
-/* Maximum number of simultaneously registered signals. Eight covers the
- * current three-signal UI profile while preserving RAM for CAN queues and TP.
- * A larger product profile may override this at compile time. */
+/* Phase P3-A capacity: the UI may configure all 40 single-frame signals. */
 #ifndef PATTERN_GEN_MAX_SIGNALS
-#define PATTERN_GEN_MAX_SIGNALS  8u
+#define PATTERN_GEN_MAX_SIGNALS  40u
 #endif
 
 /* =============================================================================
@@ -90,6 +88,9 @@ void Pattern_Generator_Init(uint32_t sim_start_time_ms);
 
 /* Register a new pattern */
 bool Pattern_Generator_Register(const Pattern_Config_t* config);
+
+/* Read-only admission check used to keep APP registration atomic. */
+bool Pattern_Generator_Can_Register(J1939_Signal_Id_t signal_id);
 
 /* Update all registered patterns (call every 1ms from main loop) */
 void Pattern_Generator_Update(uint32_t current_time_ms);

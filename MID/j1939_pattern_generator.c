@@ -181,10 +181,24 @@ void Pattern_Generator_Init(uint32_t sim_start_time_ms)
     g_is_running = true;
 }
 
+bool Pattern_Generator_Can_Register(J1939_Signal_Id_t signal_id)
+{
+    if (J1939_Find_Signal_By_Id(signal_id) == NULL) {
+        return false;
+    }
+
+    for (uint8_t i = 0u; i < g_pattern_count; i++) {
+        if (g_patterns[i].config.signal_id == signal_id) {
+            return true;
+        }
+    }
+    return g_pattern_count < PATTERN_GEN_MAX_SIGNALS;
+}
+
 bool Pattern_Generator_Register(const Pattern_Config_t* config)
 {
     if ((config == NULL) ||
-        (J1939_Find_Signal_By_Id(config->signal_id) == NULL)) {
+        !Pattern_Generator_Can_Register(config->signal_id)) {
         return false;
     }
 
@@ -199,8 +213,6 @@ bool Pattern_Generator_Register(const Pattern_Config_t* config)
             return true;
         }
     }
-    
-    if (g_pattern_count >= PATTERN_GEN_MAX_SIGNALS) return false;
     
     Pattern_State_t* state = &g_patterns[g_pattern_count];
     state->config = *config;
