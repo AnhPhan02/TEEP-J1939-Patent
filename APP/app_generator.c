@@ -234,6 +234,10 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
     if (!J1939_Get_Signal_Id(def, &signal_id)) {
         return APP_CFG_UNKNOWN_SPN;
     }
+    if (!Pattern_Generator_Can_Register(signal_id) ||
+        !J1939_Sched_Can_Add_Signal(def)) {
+        return APP_CFG_TABLE_FULL;
+    }
 
     Pattern_Config_t cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -285,6 +289,9 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
             break;
     }
 
+    /* Both capacity checks above are read-only. With the single-threaded APP
+     * owner, the two following mutations therefore succeed as one logical
+     * registration and cannot leave a half-configured signal behind. */
     if (!Pattern_Generator_Register(&cfg)) {
         return APP_CFG_TABLE_FULL;
     }
