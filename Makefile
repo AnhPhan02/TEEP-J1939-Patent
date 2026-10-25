@@ -10,6 +10,17 @@
 TARGET      := j1939_generator
 BUILD       := build
 
+# Feature/capacity profile. Run `make clean` after changing one of these
+# command-line values because make does not otherwise track CFLAGS changes.
+# Examples:
+#   make                                      production UI build
+#   make APP_CLI_ENABLE=1                     diagnostic CLI build
+#   make APP_BOOT_AUTOSTART_DEFAULTS=1        standalone demonstration build
+APP_CLI_ENABLE              ?= 0
+APP_BOOT_AUTOSTART_DEFAULTS ?= 0
+PATTERN_GEN_MAX_SIGNALS     ?= 8
+J1939_SCHED_MAX_PGNS        ?= 8
+
 PREFIX      ?= arm-none-eabi-
 CC          := $(PREFIX)gcc
 OBJCOPY     := $(PREFIX)objcopy
@@ -25,7 +36,11 @@ INCLUDES    := -IOP -IAPP -IMID -IHAL
 CPU         := -mcpu=cortex-m3 -mthumb -mfloat-abi=soft
 CFLAGS      := $(CPU) -std=gnu11 -Os -g3 -Wall -Wextra \
                -ffunction-sections -fdata-sections -fno-common \
-               $(INCLUDES) -MMD -MP
+               $(INCLUDES) -MMD -MP \
+               -DAPP_CLI_ENABLE=$(APP_CLI_ENABLE) \
+               -DAPP_BOOT_AUTOSTART_DEFAULTS=$(APP_BOOT_AUTOSTART_DEFAULTS) \
+               -DPATTERN_GEN_MAX_SIGNALS=$(PATTERN_GEN_MAX_SIGNALS) \
+               -DJ1939_SCHED_MAX_PGNS=$(J1939_SCHED_MAX_PGNS)
 ASFLAGS     := $(CPU) -x assembler-with-cpp
 LDFLAGS := $(CPU) -fno-use-linker-plugin \
            -T$(LDSCRIPT) --specs=nano.specs --specs=nosys.specs \

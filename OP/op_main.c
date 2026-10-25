@@ -234,7 +234,7 @@ int main(void)
     s_last_can_retry_ms = hal_time_ms();
     prv_enter(can_ok ? OP_STATE_RUN : OP_STATE_COMM_FAULT);
 
-    for (;;) {
+    while(1U) {
         uint32_t now = hal_time_ms();
 
 #if OP_WATCHDOG_ENABLE
@@ -249,7 +249,8 @@ int main(void)
             J1939_Rx_Router_Poll(OP_CAN_RX_POLL_BUDGET);
             App_Gen_Process(now);
             prv_supervise_bus(now);
-        } else {
+        } 
+        else {
             prv_comm_fault_step(now);
         }
     }

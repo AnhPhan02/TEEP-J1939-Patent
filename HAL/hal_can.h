@@ -18,7 +18,7 @@ extern "C" {
 
 typedef enum {
     HCAN_TX_OK      = 0,    /* Frame queued in a hardware mailbox */
-    HCAN_TX_TIMEOUT = 1,    /* No free mailbox in time, pending frames aborted */
+    HCAN_TX_TIMEOUT = 1,    /* No free mailbox now; existing frames untouched */
     HCAN_TX_ERROR   = 2     /* Invalid argument or controller not started */
 } hal_can_tx_status_t;
 

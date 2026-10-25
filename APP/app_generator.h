@@ -57,6 +57,7 @@ App_Set_Const_Status_t App_Gen_Set_Constant_Raw(J1939_Signal_Key_t signal_key,
                                                 uint32_t raw_value,
                                                 uint32_t* applied_raw_value);
 bool App_Gen_Has_Configured_Signals(void);
+bool App_Gen_Is_Signal_Configured(J1939_Signal_Key_t signal_key);
 void App_Gen_Load_Defaults(void);
 void App_Gen_Clear(void);
 

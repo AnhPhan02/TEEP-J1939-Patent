@@ -234,6 +234,10 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
     if (!J1939_Get_Signal_Id(def, &signal_id)) {
         return APP_CFG_UNKNOWN_SPN;
     }
+    if (!Pattern_Generator_Can_Register(signal_id) ||
+        !J1939_Sched_Can_Add_Signal(def)) {
+        return APP_CFG_TABLE_FULL;
+    }
 
     Pattern_Config_t cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -285,6 +289,9 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
             break;
     }
 
+    /* Both capacity checks above are read-only. With the single-threaded APP
+     * owner, the two following mutations therefore succeed as one logical
+     * registration and cannot leave a half-configured signal behind. */
     if (!Pattern_Generator_Register(&cfg)) {
         return APP_CFG_TABLE_FULL;
     }
@@ -348,6 +355,24 @@ App_Set_Const_Status_t App_Gen_Set_Constant_Raw(J1939_Signal_Key_t signal_key,
 bool App_Gen_Has_Configured_Signals(void)
 {
     return J1939_Sched_Get_Signal_Count() > 0u;
+}
+
+bool App_Gen_Is_Signal_Configured(J1939_Signal_Key_t signal_key)
+{
+    const J1939_Signal_Definition_t* target =
+        J1939_Find_Signal_By_Key(signal_key);
+    if (target == NULL) {
+        return false;
+    }
+
+    const uint8_t count = J1939_Sched_Get_Signal_Count();
+    for (uint8_t i = 0u; i < count; i++) {
+        const J1939_Sched_Signal_t* signal = J1939_Sched_Get_Signal(i);
+        if ((signal != NULL) && (signal->def == target)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void App_Gen_Load_Defaults(void)
