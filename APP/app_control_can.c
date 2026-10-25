@@ -227,6 +227,28 @@ static void prv_handle_stop(uint8_t sequence,
                        APP_CONTROL_STATUS_OK, 0u, 0u);
 }
 
+static void prv_handle_clear_config(uint8_t sequence,
+                                    const uint8_t* data,
+                                    uint8_t* response)
+{
+    if (!prv_reserved_bytes_are_zero(data)) {
+        prv_build_response(response, APP_CONTROL_OPCODE_CLEAR_CONFIG, sequence,
+                           APP_CONTROL_STATUS_BAD_ARGUMENT, 0u, 0u);
+        return;
+    }
+    if (App_Gen_Is_Running()) {
+        prv_build_response(response, APP_CONTROL_OPCODE_CLEAR_CONFIG, sequence,
+                           APP_CONTROL_STATUS_INVALID_STATE, 0u, 0u);
+        return;
+    }
+
+    /* CLEAR_CONFIG is intentionally separate from STOP: STOP preserves the
+     * current profile, while CLEAR_CONFIG releases every signal/PGN slot. */
+    App_Gen_Clear();
+    prv_build_response(response, APP_CONTROL_OPCODE_CLEAR_CONFIG, sequence,
+                       APP_CONTROL_STATUS_OK, 0u, 0u);
+}
+
 static void prv_handle_get_status(uint8_t sequence,
                                   const uint8_t* data,
                                   uint8_t* response)
@@ -321,6 +343,9 @@ static void prv_handle_control_frame(const J1939_Frame_Header_t* header,
             break;
         case APP_CONTROL_OPCODE_STOP:
             prv_handle_stop(sequence, data, response);
+            break;
+        case APP_CONTROL_OPCODE_CLEAR_CONFIG:
+            prv_handle_clear_config(sequence, data, response);
             break;
         case APP_CONTROL_OPCODE_SET_CONST:
             prv_handle_set_const(sequence, data, response);
