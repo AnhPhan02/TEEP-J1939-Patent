@@ -16,6 +16,8 @@
 
 #define APP_CONTROL_DEDUP_CACHE_CAPACITY  16u
 #define APP_CONTROL_DEDUP_WINDOW_MS       2000u
+#define APP_CONTROL_TX_QUEUE_CAPACITY      4u
+#define APP_CONTROL_TX_RETRY_DELAY_MS      1u
 
 typedef struct {
     bool valid;
@@ -31,9 +33,18 @@ typedef enum {
     APP_CONTROL_CACHE_CONFLICT
 } App_Control_Cache_Result_t;
 
+typedef struct {
+    uint8_t response[APP_CONTROL_FRAME_LENGTH];
+    uint32_t queued_ms;
+} App_Control_Tx_Entry_t;
+
 static App_Control_Can_Stats_t s_stats;
 static App_Control_Cache_Entry_t s_cache[APP_CONTROL_DEDUP_CACHE_CAPACITY];
 static uint8_t s_cache_next;
+static App_Control_Tx_Entry_t s_tx_queue[APP_CONTROL_TX_QUEUE_CAPACITY];
+static uint8_t s_tx_queue_head;
+static uint8_t s_tx_queue_count;
+static uint32_t s_tx_retry_not_before_ms;
 
 static uint16_t prv_read_u16_le(const uint8_t* data)
 {
@@ -70,22 +81,88 @@ static void prv_build_response(uint8_t* response,
     prv_write_u32_le(&response[4], value);
 }
 
-static void prv_send_response(const uint8_t* response)
+static bool prv_time_reached(uint32_t now_ms, uint32_t deadline_ms)
 {
-    J1939_Link_Status_t link_status = J1939_Link_Send_To(
+    return (int32_t)(now_ms - deadline_ms) >= 0;
+}
+
+static J1939_Link_Status_t prv_transmit_response(const uint8_t* response)
+{
+    return J1939_Link_Send_To(
         J1939_PGN_PROPRIETARY_A_CONTROL,
         response,
         APP_CONTROL_FRAME_LENGTH,
         APP_CONTROL_PRIORITY,
         APP_CONTROL_STM32_ADDRESS,
         APP_CONTROL_TESTER_ADDRESS);
+}
+
+static void prv_pop_tx_queue(void)
+{
+    if (s_tx_queue_count == 0u) {
+        return;
+    }
+    s_tx_queue_head = (uint8_t)((s_tx_queue_head + 1u) %
+                                APP_CONTROL_TX_QUEUE_CAPACITY);
+    s_tx_queue_count--;
+}
+
+static bool prv_tx_queue_contains(const uint8_t* response)
+{
+    for (uint8_t i = 0u; i < s_tx_queue_count; i++) {
+        const uint8_t index = (uint8_t)((s_tx_queue_head + i) %
+                                        APP_CONTROL_TX_QUEUE_CAPACITY);
+        if (memcmp(s_tx_queue[index].response, response,
+                   APP_CONTROL_FRAME_LENGTH) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void prv_defer_response(const uint8_t* response, uint32_t now_ms)
+{
+    /* The UI permits only one outstanding command, but keep a small queue so
+     * diagnostics or retries cannot overwrite an earlier ACK. A retry of the
+     * exact same command must not create duplicate queued responses. */
+    if (prv_tx_queue_contains(response)) {
+        return;
+    }
+    if (s_tx_queue_count >= APP_CONTROL_TX_QUEUE_CAPACITY) {
+        s_stats.responses_dropped++;
+        return;
+    }
+
+    const uint8_t tail = (uint8_t)((s_tx_queue_head + s_tx_queue_count) %
+                                   APP_CONTROL_TX_QUEUE_CAPACITY);
+    memcpy(s_tx_queue[tail].response, response, APP_CONTROL_FRAME_LENGTH);
+    s_tx_queue[tail].queued_ms = now_ms;
+    s_tx_queue_count++;
+    s_stats.responses_deferred++;
+}
+
+static void prv_send_response(const uint8_t* response)
+{
+    const uint32_t now_ms = hal_time_ms();
+
+    /* Preserve response ordering once a response has been deferred. */
+    if (s_tx_queue_count > 0u) {
+        prv_defer_response(response, now_ms);
+        return;
+    }
+
+    const J1939_Link_Status_t link_status = prv_transmit_response(response);
 
     if (link_status == J1939_LINK_OK) {
         s_stats.responses_queued++;
     } else if (link_status == J1939_LINK_BUSY) {
         s_stats.responses_busy++;
+        prv_defer_response(response, now_ms);
+        s_tx_retry_not_before_ms = now_ms + APP_CONTROL_TX_RETRY_DELAY_MS;
     } else {
         s_stats.responses_failed++;
+        prv_defer_response(response, now_ms);
+        s_tx_retry_not_before_ms = now_ms + APP_CONTROL_TX_RETRY_DELAY_MS;
     }
 }
 
@@ -370,8 +447,44 @@ void App_Control_Can_Init(void)
 {
     memset(&s_stats, 0, sizeof(s_stats));
     memset(s_cache, 0, sizeof(s_cache));
+    memset(s_tx_queue, 0, sizeof(s_tx_queue));
     s_cache_next = 0u;
+    s_tx_queue_head = 0u;
+    s_tx_queue_count = 0u;
+    s_tx_retry_not_before_ms = 0u;
     J1939_Rx_Router_Set_Control_Handler(prv_handle_control_frame);
+}
+
+void App_Control_Can_Process(void)
+{
+    const uint32_t now_ms = hal_time_ms();
+
+    while (s_tx_queue_count > 0u) {
+        App_Control_Tx_Entry_t* entry = &s_tx_queue[s_tx_queue_head];
+        if ((now_ms - entry->queued_ms) > APP_CONTROL_DEDUP_WINDOW_MS) {
+            s_stats.responses_dropped++;
+            prv_pop_tx_queue();
+            continue;
+        }
+        if (!prv_time_reached(now_ms, s_tx_retry_not_before_ms)) {
+            return;
+        }
+
+        const J1939_Link_Status_t link_status =
+            prv_transmit_response(entry->response);
+        if (link_status == J1939_LINK_OK) {
+            s_stats.responses_queued++;
+            prv_pop_tx_queue();
+            continue;
+        }
+        if (link_status == J1939_LINK_BUSY) {
+            s_stats.responses_busy++;
+        } else {
+            s_stats.responses_failed++;
+        }
+        s_tx_retry_not_before_ms = now_ms + APP_CONTROL_TX_RETRY_DELAY_MS;
+        return;
+    }
 }
 
 void App_Control_Can_Get_Stats(App_Control_Can_Stats_t* stats)

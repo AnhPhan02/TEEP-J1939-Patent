@@ -76,12 +76,19 @@ typedef struct {
     uint32_t responses_queued;
     uint32_t responses_busy;
     uint32_t responses_failed;
+    uint32_t responses_deferred;
+    uint32_t responses_dropped;
     uint32_t duplicate_replays;
     uint32_t duplicate_conflicts;
 } App_Control_Can_Stats_t;
 
 /* Reset protocol statistics and register the handler with the MID RX router. */
 void App_Control_Can_Init(void);
+
+/* Retry deferred control responses before the periodic generator gets a chance
+ * to refill the bxCAN transmit mailboxes. */
+void App_Control_Can_Process(void);
+
 void App_Control_Can_Get_Stats(App_Control_Can_Stats_t* stats);
 
 #ifdef __cplusplus
