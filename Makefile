@@ -18,8 +18,8 @@ BUILD       := build
 #   make APP_BOOT_AUTOSTART_DEFAULTS=1        standalone demonstration build
 APP_CLI_ENABLE              ?= 0
 APP_BOOT_AUTOSTART_DEFAULTS ?= 0
-PATTERN_GEN_MAX_SIGNALS     ?= 8
-J1939_SCHED_MAX_PGNS        ?= 8
+PATTERN_GEN_MAX_SIGNALS     ?= 40
+J1939_SCHED_MAX_PGNS        ?= 11
 
 PREFIX      ?= arm-none-eabi-
 CC          := $(PREFIX)gcc
