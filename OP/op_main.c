@@ -247,6 +247,8 @@ int main(void)
         if (s_state == OP_STATE_RUN) {
             /* RX service remains active even when the generator is STOPPED. */
             J1939_Rx_Router_Poll(OP_CAN_RX_POLL_BUDGET);
+            /* Control ACKs have priority over periodic generator traffic. */
+            App_Control_Can_Process();
             App_Gen_Process(now);
             prv_supervise_bus(now);
         } 
