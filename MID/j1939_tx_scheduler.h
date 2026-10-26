@@ -19,9 +19,6 @@ extern "C" {
 #include "j1939_pattern_generator.h"
 
 #define J1939_SCHED_MAX_SIGNALS  PATTERN_GEN_MAX_SIGNALS
-#ifndef J1939_SCHED_MAX_PGNS
-#define J1939_SCHED_MAX_PGNS     11u
-#endif
 
 #define J1939_TX_QUEUE_CAPACITY  32u
 

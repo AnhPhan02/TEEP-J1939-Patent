@@ -15,11 +15,9 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include "j1939_signal_definitions.h"
+#include "j1939_build_profile.h"
 
-/* Phase P3-A capacity: the UI may configure all 40 single-frame signals. */
-#ifndef PATTERN_GEN_MAX_SIGNALS
-#define PATTERN_GEN_MAX_SIGNALS  40u
-#endif
+/* PATTERN_GEN_MAX_SIGNALS is selected by j1939_build_profile.h. */
 
 /* =============================================================================
  * PATTERN TYPE ENUM
