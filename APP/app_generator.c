@@ -37,9 +37,14 @@ static App_Config_State_t s_config_state;
 static uint8_t  s_config_signal_mask[J1939_CATALOG_ACTIVE_MASK_BYTES];
 static uint8_t  s_config_pgn_mask[APP_CONFIG_PGN_MASK_BYTES];
 static uint16_t s_config_expected_count;
-static uint16_t s_config_staged_count;
+static uint16_t s_config_staged_count;      /* scalar records */
+static uint8_t  s_config_expected_blob_count;
+static uint8_t  s_config_blob_count;        /* blob records */
 static uint8_t  s_config_staged_pgn_count;
 static uint8_t  s_config_schedulable_pgn_count;
+
+/* The value store owns one blob slot per bank. */
+#define APP_CONFIG_MAX_BLOB_RECORDS  1u
 
 /* =============================================================================
  * PRIVATE: Compact-catalog identity and value-store helpers
@@ -96,6 +101,64 @@ static App_Config_Transaction_Status_t prv_config_reject(
     J1939_Value_Store_Abort();
     s_config_state = APP_CONFIG_STATE_REJECTED;
     return status;
+}
+
+static App_Config_Transaction_Status_t prv_config_ready(void)
+{
+    if (s_config_state == APP_CONFIG_STATE_IDLE) {
+        return APP_CONFIG_TXN_NOT_OPEN;
+    }
+    if (s_config_state == APP_CONFIG_STATE_REJECTED) {
+        return APP_CONFIG_TXN_REJECTED;
+    }
+    return APP_CONFIG_TXN_OK;
+}
+
+/* Read-only capacity admission for a record about to be staged. */
+static App_Config_Transaction_Status_t prv_config_admit(uint16_t index)
+{
+    const uint8_t pgn_index = J1939_Catalog_Signals[index].pgn_index;
+    if (!prv_mask_test(s_config_signal_mask, index) &&
+        ((uint16_t)(s_config_staged_count + s_config_blob_count) >=
+         J1939_PROFILE_SIGNAL_CAPACITY)) {
+        return APP_CONFIG_TXN_RESOURCE_FULL;
+    }
+    if (!prv_mask_test(s_config_pgn_mask, pgn_index) &&
+        prv_pgn_is_schedulable(pgn_index) &&
+        (s_config_schedulable_pgn_count >= J1939_PROFILE_PGN_CAPACITY)) {
+        return APP_CONFIG_TXN_RESOURCE_FULL;
+    }
+    return APP_CONFIG_TXN_OK;
+}
+
+/* Record a successfully staged record; returns true when it is new. */
+static bool prv_config_mark(uint16_t index)
+{
+    const uint8_t pgn_index = J1939_Catalog_Signals[index].pgn_index;
+    if (!prv_mask_test(s_config_pgn_mask, pgn_index)) {
+        prv_mask_set(s_config_pgn_mask, pgn_index);
+        s_config_staged_pgn_count++;
+        if (prv_pgn_is_schedulable(pgn_index)) {
+            s_config_schedulable_pgn_count++;
+        }
+    }
+    if (prv_mask_test(s_config_signal_mask, index)) {
+        return false;
+    }
+    prv_mask_set(s_config_signal_mask, index);
+    return true;
+}
+
+static void prv_config_reset_counters(void)
+{
+    memset(s_config_signal_mask, 0, sizeof(s_config_signal_mask));
+    memset(s_config_pgn_mask, 0, sizeof(s_config_pgn_mask));
+    s_config_expected_count = 0u;
+    s_config_staged_count = 0u;
+    s_config_expected_blob_count = 0u;
+    s_config_blob_count = 0u;
+    s_config_staged_pgn_count = 0u;
+    s_config_schedulable_pgn_count = 0u;
 }
 
 static uint16_t prv_find_unique_catalog_index(uint32_t spn,
@@ -353,12 +416,7 @@ void App_Gen_Init(uint32_t baud_kbps)
     s_total_frames_sent = 0u;
     s_baud_kbps = baud_kbps;
     s_config_state = APP_CONFIG_STATE_IDLE;
-    s_config_expected_count = 0u;
-    s_config_staged_count = 0u;
-    s_config_staged_pgn_count = 0u;
-    s_config_schedulable_pgn_count = 0u;
-    memset(s_config_signal_mask, 0, sizeof(s_config_signal_mask));
-    memset(s_config_pgn_mask, 0, sizeof(s_config_pgn_mask));
+    prv_config_reset_counters();
 }
 
 bool App_Gen_Set_Baud(uint32_t baud_kbps)
@@ -519,7 +577,8 @@ App_Set_Const_Status_t App_Gen_Set_Constant_Raw(uint16_t signal_key,
 }
 
 App_Config_Transaction_Status_t App_Gen_Begin_Config(
-    uint16_t expected_scalar_count)
+    uint16_t expected_scalar_count,
+    uint8_t expected_blob_count)
 {
     if (s_is_running) {
         return APP_CONFIG_TXN_INVALID_STATE;
@@ -527,7 +586,9 @@ App_Config_Transaction_Status_t App_Gen_Begin_Config(
     if (s_config_state != APP_CONFIG_STATE_IDLE) {
         return APP_CONFIG_TXN_ALREADY_OPEN;
     }
-    if (expected_scalar_count > J1939_PROFILE_SIGNAL_CAPACITY) {
+    if ((expected_blob_count > APP_CONFIG_MAX_BLOB_RECORDS) ||
+        ((uint16_t)(expected_scalar_count + expected_blob_count) >
+         J1939_PROFILE_SIGNAL_CAPACITY)) {
         return APP_CONFIG_TXN_RESOURCE_FULL;
     }
     if (J1939_Value_Store_Begin(J1939_VALUE_STORE_BEGIN_EMPTY) !=
@@ -535,12 +596,9 @@ App_Config_Transaction_Status_t App_Gen_Begin_Config(
         return APP_CONFIG_TXN_INTERNAL_ERROR;
     }
 
-    memset(s_config_signal_mask, 0, sizeof(s_config_signal_mask));
-    memset(s_config_pgn_mask, 0, sizeof(s_config_pgn_mask));
+    prv_config_reset_counters();
     s_config_expected_count = expected_scalar_count;
-    s_config_staged_count = 0u;
-    s_config_staged_pgn_count = 0u;
-    s_config_schedulable_pgn_count = 0u;
+    s_config_expected_blob_count = expected_blob_count;
     s_config_state = APP_CONFIG_STATE_OPEN;
     return APP_CONFIG_TXN_OK;
 }
@@ -553,11 +611,9 @@ App_Config_Transaction_Status_t App_Gen_Stage_Constant_Raw(
     if (out_staged_count != NULL) {
         *out_staged_count = s_config_staged_count;
     }
-    if (s_config_state == APP_CONFIG_STATE_IDLE) {
-        return APP_CONFIG_TXN_NOT_OPEN;
-    }
-    if (s_config_state == APP_CONFIG_STATE_REJECTED) {
-        return APP_CONFIG_TXN_REJECTED;
+    const App_Config_Transaction_Status_t ready = prv_config_ready();
+    if (ready != APP_CONFIG_TXN_OK) {
+        return ready;
     }
 
     const uint16_t index = J1939_Catalog_Index_From_Key(signal_key);
@@ -576,37 +632,81 @@ App_Config_Transaction_Status_t App_Gen_Stage_Constant_Raw(
     if (check != J1939_VALUE_STORE_OK) {
         return prv_config_reject(APP_CONFIG_TXN_UNSUPPORTED_SIGNAL);
     }
-
-    const bool new_signal = !prv_mask_test(s_config_signal_mask, index);
-    const uint8_t pgn_index = J1939_Catalog_Signals[index].pgn_index;
-    const bool new_pgn = !prv_mask_test(s_config_pgn_mask, pgn_index);
-    if (new_signal &&
-        (s_config_staged_count >= J1939_PROFILE_SIGNAL_CAPACITY)) {
-        return prv_config_reject(APP_CONFIG_TXN_RESOURCE_FULL);
-    }
-    if (new_pgn && prv_pgn_is_schedulable(pgn_index) &&
-        (s_config_schedulable_pgn_count >= J1939_PROFILE_PGN_CAPACITY)) {
-        return prv_config_reject(APP_CONFIG_TXN_RESOURCE_FULL);
+    const App_Config_Transaction_Status_t admit = prv_config_admit(index);
+    if (admit != APP_CONFIG_TXN_OK) {
+        return prv_config_reject(admit);
     }
 
     if (J1939_Value_Store_Set_Raw(signal_key, raw_value) !=
         J1939_VALUE_STORE_OK) {
         return prv_config_reject(APP_CONFIG_TXN_INTERNAL_ERROR);
     }
-
-    if (new_signal) {
-        prv_mask_set(s_config_signal_mask, index);
+    if (prv_config_mark(index)) {
         s_config_staged_count++;
-    }
-    if (new_pgn) {
-        prv_mask_set(s_config_pgn_mask, pgn_index);
-        s_config_staged_pgn_count++;
-        if (prv_pgn_is_schedulable(pgn_index)) {
-            s_config_schedulable_pgn_count++;
-        }
     }
     if (out_staged_count != NULL) {
         *out_staged_count = s_config_staged_count;
+    }
+    return APP_CONFIG_TXN_OK;
+}
+
+App_Config_Transaction_Status_t App_Gen_Stage_Blob_Chunk(
+    uint16_t signal_key,
+    uint8_t total_length,
+    uint8_t offset,
+    const uint8_t chunk[APP_BLOB_CHUNK_BYTES],
+    uint16_t* out_written_bytes)
+{
+    if (out_written_bytes != NULL) {
+        *out_written_bytes = J1939_Value_Store_Staged_Blob_Bytes();
+    }
+    const App_Config_Transaction_Status_t ready = prv_config_ready();
+    if (ready != APP_CONFIG_TXN_OK) {
+        return ready;
+    }
+    if (chunk == NULL) {
+        return prv_config_reject(APP_CONFIG_TXN_BAD_ARGUMENT);
+    }
+
+    const uint16_t index = J1939_Catalog_Index_From_Key(signal_key);
+    if (index == J1939_CATALOG_INDEX_INVALID) {
+        return prv_config_reject(APP_CONFIG_TXN_UNKNOWN_KEY);
+    }
+    if ((J1939_Catalog_Signals[index].flags & J1939_CAT_SIG_BLOB) == 0u) {
+        return prv_config_reject(APP_CONFIG_TXN_UNSUPPORTED_SIGNAL);
+    }
+    if (offset >= total_length) {
+        return prv_config_reject(APP_CONFIG_TXN_VALUE_OUT_OF_RANGE);
+    }
+    const uint8_t remaining = (uint8_t)(total_length - offset);
+    const uint8_t count = (remaining < APP_BLOB_CHUNK_BYTES)
+        ? remaining : (uint8_t)APP_BLOB_CHUNK_BYTES;
+    for (uint8_t i = count; i < APP_BLOB_CHUNK_BYTES; i++) {
+        if (chunk[i] != 0u) {
+            return prv_config_reject(APP_CONFIG_TXN_BAD_ARGUMENT);
+        }
+    }
+    const App_Config_Transaction_Status_t admit = prv_config_admit(index);
+    if (admit != APP_CONFIG_TXN_OK) {
+        return prv_config_reject(admit);
+    }
+
+    switch (J1939_Value_Store_Write_Blob(signal_key, total_length, offset,
+                                         chunk, count)) {
+        case J1939_VALUE_STORE_OK:
+            break;
+        case J1939_VALUE_STORE_VALUE_OUT_OF_RANGE:
+            return prv_config_reject(APP_CONFIG_TXN_VALUE_OUT_OF_RANGE);
+        case J1939_VALUE_STORE_RESOURCE_FULL:
+            return prv_config_reject(APP_CONFIG_TXN_RESOURCE_FULL);
+        default:
+            return prv_config_reject(APP_CONFIG_TXN_INTERNAL_ERROR);
+    }
+    if (prv_config_mark(index)) {
+        s_config_blob_count++;
+    }
+    if (out_written_bytes != NULL) {
+        *out_written_bytes = J1939_Value_Store_Staged_Blob_Bytes();
     }
     return APP_CONFIG_TXN_OK;
 }
@@ -624,16 +724,21 @@ App_Config_Transaction_Status_t App_Gen_Commit_Config(
         J1939_Value_Store_Abort();
         return APP_CONFIG_TXN_REJECTED;
     }
-    if (s_config_staged_count != s_config_expected_count) {
+    if ((s_config_staged_count != s_config_expected_count) ||
+        (s_config_blob_count != s_config_expected_blob_count)) {
         J1939_Value_Store_Abort();
         s_config_state = APP_CONFIG_STATE_IDLE;
         return APP_CONFIG_TXN_COUNT_MISMATCH;
     }
 
     uint16_t generation = 0u;
-    if (J1939_Value_Store_Commit(&generation) != J1939_VALUE_STORE_OK) {
+    const J1939_Value_Store_Status_t committed =
+        J1939_Value_Store_Commit(&generation);
+    if (committed != J1939_VALUE_STORE_OK) {
         s_config_state = APP_CONFIG_STATE_IDLE;
-        return APP_CONFIG_TXN_INTERNAL_ERROR;
+        return (committed == J1939_VALUE_STORE_BLOB_INCOMPLETE)
+            ? APP_CONFIG_TXN_BLOB_INCOMPLETE
+            : APP_CONFIG_TXN_INTERNAL_ERROR;
     }
 
     /* Generator must be stopped. The value bank is already complete, so this
@@ -657,7 +762,7 @@ App_Config_Transaction_Status_t App_Gen_Commit_Config(
         *out_generation = generation;
     }
     if (out_signal_count != NULL) {
-        *out_signal_count = s_config_staged_count;
+        *out_signal_count = (uint16_t)(s_config_staged_count + s_config_blob_count);
     }
     if (out_pgn_count != NULL) {
         *out_pgn_count = s_config_staged_pgn_count;
@@ -669,10 +774,102 @@ void App_Gen_Abort_Config(void)
 {
     J1939_Value_Store_Abort();
     s_config_state = APP_CONFIG_STATE_IDLE;
-    s_config_expected_count = 0u;
-    s_config_staged_count = 0u;
-    s_config_staged_pgn_count = 0u;
-    s_config_schedulable_pgn_count = 0u;
+    prv_config_reset_counters();
+}
+
+uint32_t App_Gen_Global_Percent_To_Raw(uint32_t raw_min, uint32_t raw_max,
+                                       uint16_t percentage_bp)
+{
+    if ((raw_max <= raw_min) || (percentage_bp == 0u)) {
+        return raw_min;
+    }
+    if (percentage_bp >= APP_GLOBAL_PERCENT_MAX_BP) {
+        return raw_max;
+    }
+    const uint64_t delta = (uint64_t)raw_max - raw_min;
+    const uint64_t step = (((uint64_t)percentage_bp * delta) +
+                           (APP_GLOBAL_PERCENT_MAX_BP / 2u)) /
+                          APP_GLOBAL_PERCENT_MAX_BP;
+    return raw_min + (uint32_t)step;
+}
+
+App_Config_Transaction_Status_t App_Gen_Set_Global_Percent(
+    uint16_t percentage_bp,
+    uint16_t* out_generation,
+    uint16_t* out_affected_count,
+    uint16_t* out_excluded_count)
+{
+    if (out_generation != NULL) {
+        *out_generation = J1939_Value_Store_Get_Generation();
+    }
+    if (out_affected_count != NULL) {
+        *out_affected_count = 0u;
+    }
+    if (out_excluded_count != NULL) {
+        *out_excluded_count = 0u;
+    }
+    if (s_config_state != APP_CONFIG_STATE_IDLE) {
+        return APP_CONFIG_TXN_INVALID_STATE;
+    }
+    if (percentage_bp > APP_GLOBAL_PERCENT_MAX_BP) {
+        return APP_CONFIG_TXN_VALUE_OUT_OF_RANGE;
+    }
+
+    uint16_t affected = 0u;
+    uint16_t excluded = 0u;
+    for (uint16_t i = 0u; i < J1939_CATALOG_SIGNAL_COUNT; i++) {
+        if (J1939_Value_Store_Is_Active(i)) {
+            if ((J1939_Catalog_Signals[i].flags & J1939_CAT_SIG_GLOBAL_CONTROL) != 0u) {
+                affected++;
+            } else {
+                excluded++;
+            }
+        } else if (Pattern_Generator_Is_Registered(i)) {
+            excluded++;
+        }
+    }
+
+    /* All affected values change in one value-store generation; the scheduler
+     * reads only the active bank, so no PGN mixes old and new values. */
+    if (affected > 0u) {
+        if (J1939_Value_Store_Begin(J1939_VALUE_STORE_BEGIN_COPY_ACTIVE) !=
+            J1939_VALUE_STORE_OK) {
+            return APP_CONFIG_TXN_INTERNAL_ERROR;
+        }
+        for (uint16_t i = 0u; i < J1939_CATALOG_SIGNAL_COUNT; i++) {
+            const J1939_Catalog_Signal_t* sig = &J1939_Catalog_Signals[i];
+            if (!J1939_Value_Store_Is_Active(i) ||
+                ((sig->flags & J1939_CAT_SIG_GLOBAL_CONTROL) == 0u)) {
+                continue;
+            }
+            const uint32_t raw = App_Gen_Global_Percent_To_Raw(
+                sig->raw_min, sig->raw_max, percentage_bp);
+            if (J1939_Value_Store_Set_Raw(sig->signal_key, raw) !=
+                J1939_VALUE_STORE_OK) {
+                J1939_Value_Store_Abort();
+                return APP_CONFIG_TXN_INTERNAL_ERROR;
+            }
+        }
+        if (J1939_Value_Store_Commit(NULL) != J1939_VALUE_STORE_OK) {
+            return APP_CONFIG_TXN_INTERNAL_ERROR;
+        }
+    }
+
+    if (out_generation != NULL) {
+        *out_generation = J1939_Value_Store_Get_Generation();
+    }
+    if (out_affected_count != NULL) {
+        *out_affected_count = affected;
+    }
+    if (out_excluded_count != NULL) {
+        *out_excluded_count = excluded;
+    }
+    return APP_CONFIG_TXN_OK;
+}
+
+uint32_t App_Gen_Get_Config_Crc(void)
+{
+    return J1939_Value_Store_Get_Config_Crc();
 }
 
 bool App_Gen_Config_Transaction_Open(void)

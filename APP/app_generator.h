@@ -62,8 +62,16 @@ typedef enum {
     APP_CONFIG_TXN_UNSUPPORTED_SIGNAL,
     APP_CONFIG_TXN_RESOURCE_FULL,
     APP_CONFIG_TXN_COUNT_MISMATCH,
-    APP_CONFIG_TXN_INTERNAL_ERROR
+    APP_CONFIG_TXN_INTERNAL_ERROR,
+    APP_CONFIG_TXN_BLOB_INCOMPLETE,     /* commit: blob bytes missing */
+    APP_CONFIG_TXN_BAD_ARGUMENT         /* malformed chunk/padding */
 } App_Config_Transaction_Status_t;
+
+/* Maximum blob payload bytes carried by one WRITE_BLOB chunk. */
+#define APP_BLOB_CHUNK_BYTES  3u
+
+/* Global percentage is in basis points: 0..10000 = 0.00..100.00 %. */
+#define APP_GLOBAL_PERCENT_MAX_BP  10000u
 
 void App_Gen_Init(uint32_t baud_kbps);
 bool App_Gen_Set_Baud(uint32_t baud_kbps);
@@ -76,11 +84,21 @@ App_Set_Const_Status_t App_Gen_Set_Constant_Raw(uint16_t signal_key,
                                                 uint32_t* applied_raw_value);
 
 App_Config_Transaction_Status_t App_Gen_Begin_Config(
-    uint16_t expected_scalar_count);
+    uint16_t expected_scalar_count,
+    uint8_t expected_blob_count);
 App_Config_Transaction_Status_t App_Gen_Stage_Constant_Raw(
     uint16_t signal_key,
     uint32_t raw_value,
     uint16_t* out_staged_count);
+/* Stage one blob chunk. chunk holds APP_BLOB_CHUNK_BYTES bytes; only the
+ * first min(3, total_length - offset) are payload and the rest must be zero.
+ * out_written_bytes receives the distinct blob bytes staged so far. */
+App_Config_Transaction_Status_t App_Gen_Stage_Blob_Chunk(
+    uint16_t signal_key,
+    uint8_t total_length,
+    uint8_t offset,
+    const uint8_t chunk[APP_BLOB_CHUNK_BYTES],
+    uint16_t* out_written_bytes);
 App_Config_Transaction_Status_t App_Gen_Commit_Config(
     uint16_t* out_generation,
     uint16_t* out_signal_count,
@@ -88,6 +106,21 @@ App_Config_Transaction_Status_t App_Gen_Commit_Config(
 void App_Gen_Abort_Config(void);
 bool App_Gen_Config_Transaction_Open(void);
 bool App_Gen_Config_Transaction_Rejected(void);
+
+/* Map every active constant record whose catalog marks it global_control to
+ * raw = raw_min + floor((bp * (raw_max - raw_min) + 5000) / 10000) and commit
+ * them in one generation. Boolean/enum/blob/waveform records are excluded and
+ * left unchanged. Allowed while running; rejected while a transaction is open.
+ * With no affected record nothing is committed (generation unchanged). */
+App_Config_Transaction_Status_t App_Gen_Set_Global_Percent(
+    uint16_t percentage_bp,
+    uint16_t* out_generation,
+    uint16_t* out_affected_count,
+    uint16_t* out_excluded_count);
+/* Pure mapping used by App_Gen_Set_Global_Percent (exposed for UI parity tests). */
+uint32_t App_Gen_Global_Percent_To_Raw(uint32_t raw_min, uint32_t raw_max,
+                                       uint16_t percentage_bp);
+uint32_t App_Gen_Get_Config_Crc(void);
 
 bool App_Gen_Has_Configured_Signals(void);
 bool App_Gen_Is_Signal_Configured(uint16_t signal_key);
