@@ -29,19 +29,37 @@ extern "C" {
 #define APP_CONTROL_OPCODE_SET_SIGNAL_RAW 0x12u
 #define APP_CONTROL_OPCODE_COMMIT_CONFIG 0x13u
 #define APP_CONTROL_OPCODE_ABORT_CONFIG  0x14u
+#define APP_CONTROL_OPCODE_WRITE_BLOB    0x15u
+#define APP_CONTROL_OPCODE_SET_GLOBAL_PERCENT 0x16u
 
-/* Phase 4A request layouts (all little-endian, all frames exactly 8 bytes):
- * BEGIN_CONFIG  [op, seq, catalog_crc32, expected_scalar_u8, flags=0]
+/* Request layouts (all little-endian, all frames exactly 8 bytes):
+ * BEGIN_CONFIG  [op, seq, catalog_crc32, expected_scalar_u8, expected_blob_u8]
+ *               (expected_blob_u8 was flags=0 in 2.0, so 2.0 clients still work)
  * SET_SIGNAL_RAW[op, seq, signal_key_u16, raw_value_u32]
+ * WRITE_BLOB    [op, seq, signal_key_u8, total_length_u8, offset_u8, data[3]]
+ *               payload bytes = min(3, total_length - offset); unused data
+ *               bytes must be zero. The first chunk fixes total_length.
+ * SET_GLOBAL_PERCENT [op, seq, percentage_bp_u16 (0..10000), reserved_zero[4]]
  * COMMIT/ABORT  [op, seq, reserved_zero[6]]
  * GET_STATUS    [op, seq, page, reserved_zero[5]]
  *
- * COMMIT response: detail=active PGN count, value[15:0]=generation,
- * value[31:16]=active signal count. Runtime status page value[15:0] is the
- * generation, [23:16] signal count and [31:24] PGN count. */
+ * Responses [op|0x80, seq, status, detail, value_u32]:
+ * COMMIT        detail=active PGN count, value[15:0]=generation,
+ *               value[31:16]=active signal count (scalars + blobs)
+ * WRITE_BLOB    detail=total_length, value=distinct blob bytes staged so far
+ * SET_GLOBAL_PERCENT detail=excluded active-record count,
+ *               value[15:0]=generation, value[31:16]=affected record count
+ * GET_STATUS page 0 protocol: value = major, minor, schema, capability mask
+ *            page 1 runtime:  value[15:0] generation, [23:16] signal count,
+ *                             [31:24] PGN count
+ *            page 2 config:   value = active configuration CRC32
+ *                             (algorithm in j1939_value_store.h)
+ *            page 3 limits:   value = max signals u8, max PGNs u8, waveform
+ *                             pool u8, max blob bytes u8; detail = features
+ * Every page carries the APP_CONTROL_RUNTIME_* flags in detail except page 3. */
 
 #define APP_CONTROL_PROTOCOL_MAJOR       2u
-#define APP_CONTROL_PROTOCOL_MINOR       0u
+#define APP_CONTROL_PROTOCOL_MINOR       1u
 #define APP_CONTROL_SCHEMA_VERSION       1u
 
 #define APP_CONTROL_CAPABILITY_STOP          (1u << 0)
@@ -70,6 +88,23 @@ extern "C" {
 
 #define APP_CONTROL_STATUS_PAGE_PROTOCOL              0u
 #define APP_CONTROL_STATUS_PAGE_RUNTIME               1u
+#define APP_CONTROL_STATUS_PAGE_CONFIG                2u
+#define APP_CONTROL_STATUS_PAGE_LIMITS                3u
+#define APP_CONTROL_STATUS_PAGE_LAST                  APP_CONTROL_STATUS_PAGE_LIMITS
+
+/* GET_STATUS page 3 detail: protocol features beyond the page-0 mask. A clear
+ * bit means the firmware does not provide the feature yet. */
+#define APP_CONTROL_FEATURE_WRITE_BLOB        (1u << 0)
+#define APP_CONTROL_FEATURE_GLOBAL_PERCENT    (1u << 1)
+#define APP_CONTROL_FEATURE_CONFIG_CRC        (1u << 2)
+#define APP_CONTROL_FEATURE_SIGNAL_MODE       (1u << 3)
+#define APP_CONTROL_FEATURE_TRANSPORT_TP      (1u << 4)
+#define APP_CONTROL_FEATURE_PERSISTENCE       (1u << 5)
+#define APP_CONTROL_FEATURE_REQUEST_PGN       (1u << 6)
+#define APP_CONTROL_FEATURES                  \
+    (APP_CONTROL_FEATURE_WRITE_BLOB |         \
+     APP_CONTROL_FEATURE_GLOBAL_PERCENT |     \
+     APP_CONTROL_FEATURE_CONFIG_CRC)
 
 /* GET_STATUS response: detail = APP_CONTROL_RUNTIME_* flags. The LE value32
  * bytes are protocol major, protocol minor, schema and capability mask. */

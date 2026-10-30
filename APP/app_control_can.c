@@ -10,6 +10,7 @@
 #include "hal_time.h"
 #include "j1939_link.h"
 #include "j1939_rx_router.h"
+#include "j1939_value_store.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
@@ -266,6 +267,10 @@ static App_Control_Status_t prv_txn_status(
             return APP_CONTROL_STATUS_INTERNAL_ERROR;
         case APP_CONFIG_TXN_ALREADY_OPEN:
             return APP_CONTROL_STATUS_BUSY;
+        case APP_CONFIG_TXN_BLOB_INCOMPLETE:
+            return APP_CONTROL_STATUS_BLOB_INCOMPLETE;
+        case APP_CONFIG_TXN_BAD_ARGUMENT:
+            return APP_CONTROL_STATUS_BAD_ARGUMENT;
         case APP_CONFIG_TXN_INVALID_STATE:
         case APP_CONFIG_TXN_NOT_OPEN:
         default:
@@ -379,7 +384,7 @@ static void prv_handle_get_status(uint8_t sequence,
 {
     const uint8_t page = data[2];
     if (!prv_bytes_are_zero_from(data, 3u) ||
-        (page > APP_CONTROL_STATUS_PAGE_RUNTIME)) {
+        (page > APP_CONTROL_STATUS_PAGE_LAST)) {
         prv_build_response(response, APP_CONTROL_OPCODE_GET_STATUS, sequence,
                            APP_CONTROL_STATUS_BAD_ARGUMENT, 0u, 0u);
         return;
@@ -403,14 +408,35 @@ static void prv_handle_get_status(uint8_t sequence,
     }
 
     uint32_t value = APP_CONTROL_PROTOCOL_INFO_VALUE;
-    if (page == APP_CONTROL_STATUS_PAGE_RUNTIME) {
-        value = (uint32_t)App_Gen_Get_Config_Generation() |
-                ((uint32_t)App_Gen_Get_Active_Signal_Count() << 16) |
-                ((uint32_t)App_Gen_Get_Active_PGN_Count() << 24);
+    uint8_t detail = runtime_flags;
+    switch (page) {
+        case APP_CONTROL_STATUS_PAGE_RUNTIME:
+            value = (uint32_t)App_Gen_Get_Config_Generation() |
+                    ((uint32_t)App_Gen_Get_Active_Signal_Count() << 16) |
+                    ((uint32_t)App_Gen_Get_Active_PGN_Count() << 24);
+            break;
+        case APP_CONTROL_STATUS_PAGE_CONFIG:
+            value = App_Gen_Get_Config_Crc();
+            break;
+        case APP_CONTROL_STATUS_PAGE_LIMITS:
+            detail = (uint8_t)APP_CONTROL_FEATURES;
+            value = (uint32_t)J1939_PROFILE_SIGNAL_CAPACITY |
+                    ((uint32_t)J1939_PROFILE_PGN_CAPACITY << 8) |
+                    ((uint32_t)J1939_WAVEFORM_POOL_CAPACITY << 16) |
+                    ((uint32_t)J1939_VALUE_STORE_BLOB_MAX_BYTES << 24);
+            break;
+        default:
+            break;
     }
     prv_build_response(response, APP_CONTROL_OPCODE_GET_STATUS, sequence,
-                       APP_CONTROL_STATUS_OK, runtime_flags, value);
+                       APP_CONTROL_STATUS_OK, detail, value);
 }
+
+_Static_assert((J1939_PROFILE_SIGNAL_CAPACITY <= 0xFFu) &&
+               (J1939_PROFILE_PGN_CAPACITY <= 0xFFu) &&
+               (J1939_WAVEFORM_POOL_CAPACITY <= 0xFFu) &&
+               (J1939_VALUE_STORE_BLOB_MAX_BYTES <= 0xFFu),
+               "GET_STATUS limits page packs each limit into one byte");
 
 static void prv_handle_begin_config(uint8_t sequence,
                                     const uint8_t* data,
@@ -418,21 +444,16 @@ static void prv_handle_begin_config(uint8_t sequence,
 {
     const uint32_t catalog_crc = prv_read_u32_le(&data[2]);
     const uint16_t expected_count = data[6];
-    const uint8_t flags = data[7];
+    const uint8_t expected_blob_count = data[7];
     if (catalog_crc != J1939_CATALOG_CRC32) {
         prv_build_response(response, APP_CONTROL_OPCODE_BEGIN_CONFIG, sequence,
                            APP_CONTROL_STATUS_CATALOG_MISMATCH, 0u,
                            J1939_CATALOG_CRC32);
         return;
     }
-    if (flags != 0u) {
-        prv_build_response(response, APP_CONTROL_OPCODE_BEGIN_CONFIG, sequence,
-                           APP_CONTROL_STATUS_BAD_ARGUMENT, flags, 0u);
-        return;
-    }
 
     const App_Control_Status_t status = prv_txn_status(
-        App_Gen_Begin_Config(expected_count));
+        App_Gen_Begin_Config(expected_count, expected_blob_count));
     prv_build_response(response, APP_CONTROL_OPCODE_BEGIN_CONFIG, sequence,
                        status, (uint8_t)expected_count,
                        J1939_CATALOG_CRC32);
