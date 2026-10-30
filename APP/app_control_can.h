@@ -25,9 +25,23 @@ extern "C" {
 #define APP_CONTROL_OPCODE_GET_STATUS    0x04u
 #define APP_CONTROL_OPCODE_CLEAR_CONFIG  0x05u
 #define APP_CONTROL_OPCODE_SET_CONST     0x10u
+#define APP_CONTROL_OPCODE_BEGIN_CONFIG  0x11u
+#define APP_CONTROL_OPCODE_SET_SIGNAL_RAW 0x12u
+#define APP_CONTROL_OPCODE_COMMIT_CONFIG 0x13u
+#define APP_CONTROL_OPCODE_ABORT_CONFIG  0x14u
 
-#define APP_CONTROL_PROTOCOL_MAJOR       1u
-#define APP_CONTROL_PROTOCOL_MINOR       1u
+/* Phase 4A request layouts (all little-endian, all frames exactly 8 bytes):
+ * BEGIN_CONFIG  [op, seq, catalog_crc32, expected_scalar_u8, flags=0]
+ * SET_SIGNAL_RAW[op, seq, signal_key_u16, raw_value_u32]
+ * COMMIT/ABORT  [op, seq, reserved_zero[6]]
+ * GET_STATUS    [op, seq, page, reserved_zero[5]]
+ *
+ * COMMIT response: detail=active PGN count, value[15:0]=generation,
+ * value[31:16]=active signal count. Runtime status page value[15:0] is the
+ * generation, [23:16] signal count and [31:24] PGN count. */
+
+#define APP_CONTROL_PROTOCOL_MAJOR       2u
+#define APP_CONTROL_PROTOCOL_MINOR       0u
 #define APP_CONTROL_SCHEMA_VERSION       1u
 
 #define APP_CONTROL_CAPABILITY_STOP          (1u << 0)
@@ -36,16 +50,26 @@ extern "C" {
 #define APP_CONTROL_CAPABILITY_SET_CONST     (1u << 3)
 #define APP_CONTROL_CAPABILITY_START         (1u << 4)
 #define APP_CONTROL_CAPABILITY_CLEAR_CONFIG  (1u << 5)
+#define APP_CONTROL_CAPABILITY_CONFIG_TXN    (1u << 6)
+#define APP_CONTROL_CAPABILITY_RUNTIME_INFO  (1u << 7)
 #define APP_CONTROL_CAPABILITIES             \
     (APP_CONTROL_CAPABILITY_STOP |           \
      APP_CONTROL_CAPABILITY_GET_STATUS |     \
      APP_CONTROL_CAPABILITY_DEDUP_CACHE |    \
      APP_CONTROL_CAPABILITY_SET_CONST |      \
      APP_CONTROL_CAPABILITY_START |          \
-     APP_CONTROL_CAPABILITY_CLEAR_CONFIG)
+     APP_CONTROL_CAPABILITY_CLEAR_CONFIG |   \
+     APP_CONTROL_CAPABILITY_CONFIG_TXN |     \
+     APP_CONTROL_CAPABILITY_RUNTIME_INFO)
 
 #define APP_CONTROL_RUNTIME_RUNNING                  (1u << 0)
 #define APP_CONTROL_RUNTIME_ENGINE_SPEED_CONFIGURED  (1u << 1)
+#define APP_CONTROL_RUNTIME_TRANSACTION_OPEN         (1u << 2)
+#define APP_CONTROL_RUNTIME_TRANSACTION_REJECTED     (1u << 3)
+#define APP_CONTROL_RUNTIME_COMMITTED                 (1u << 4)
+
+#define APP_CONTROL_STATUS_PAGE_PROTOCOL              0u
+#define APP_CONTROL_STATUS_PAGE_RUNTIME               1u
 
 /* GET_STATUS response: detail = APP_CONTROL_RUNTIME_* flags. The LE value32
  * bytes are protocol major, protocol minor, schema and capability mask. */
@@ -65,7 +89,12 @@ typedef enum {
     APP_CONTROL_STATUS_VALUE_OUT_OF_RANGE = 6,
     APP_CONTROL_STATUS_INVALID_STATE = 7,
     APP_CONTROL_STATUS_BUSY = 8,
-    APP_CONTROL_STATUS_DUPLICATE_CONFLICT = 9
+    APP_CONTROL_STATUS_DUPLICATE_CONFLICT = 9,
+    APP_CONTROL_STATUS_TRANSACTION_REJECTED = 10,
+    APP_CONTROL_STATUS_COUNT_MISMATCH = 11,
+    APP_CONTROL_STATUS_RESOURCE_FULL = 12,
+    APP_CONTROL_STATUS_CATALOG_MISMATCH = 13,
+    APP_CONTROL_STATUS_INTERNAL_ERROR = 14
 } App_Control_Status_t;
 
 typedef struct {

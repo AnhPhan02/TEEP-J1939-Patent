@@ -43,8 +43,27 @@ typedef enum {
     APP_SET_CONST_UNKNOWN_KEY,
     APP_SET_CONST_VALUE_OUT_OF_RANGE,
     APP_SET_CONST_UNSUPPORTED_SIGNAL,
-    APP_SET_CONST_RESOURCE_FULL
+    APP_SET_CONST_RESOURCE_FULL,
+    APP_SET_CONST_TRANSACTION_OPEN
 } App_Set_Const_Status_t;
+
+/* Phase 4A full-profile transaction. The active profile is never modified by
+ * BEGIN/SET; only a successful COMMIT swaps the value bank and rebuilds the
+ * scheduler. A rejected transaction must be aborted or committed (which
+ * reports REJECTED and discards it) before another transaction can begin. */
+typedef enum {
+    APP_CONFIG_TXN_OK = 0,
+    APP_CONFIG_TXN_INVALID_STATE,
+    APP_CONFIG_TXN_ALREADY_OPEN,
+    APP_CONFIG_TXN_NOT_OPEN,
+    APP_CONFIG_TXN_REJECTED,
+    APP_CONFIG_TXN_UNKNOWN_KEY,
+    APP_CONFIG_TXN_VALUE_OUT_OF_RANGE,
+    APP_CONFIG_TXN_UNSUPPORTED_SIGNAL,
+    APP_CONFIG_TXN_RESOURCE_FULL,
+    APP_CONFIG_TXN_COUNT_MISMATCH,
+    APP_CONFIG_TXN_INTERNAL_ERROR
+} App_Config_Transaction_Status_t;
 
 void App_Gen_Init(uint32_t baud_kbps);
 bool App_Gen_Set_Baud(uint32_t baud_kbps);
@@ -55,8 +74,27 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
 App_Set_Const_Status_t App_Gen_Set_Constant_Raw(uint16_t signal_key,
                                                 uint32_t raw_value,
                                                 uint32_t* applied_raw_value);
+
+App_Config_Transaction_Status_t App_Gen_Begin_Config(
+    uint16_t expected_scalar_count);
+App_Config_Transaction_Status_t App_Gen_Stage_Constant_Raw(
+    uint16_t signal_key,
+    uint32_t raw_value,
+    uint16_t* out_staged_count);
+App_Config_Transaction_Status_t App_Gen_Commit_Config(
+    uint16_t* out_generation,
+    uint16_t* out_signal_count,
+    uint8_t* out_pgn_count);
+void App_Gen_Abort_Config(void);
+bool App_Gen_Config_Transaction_Open(void);
+bool App_Gen_Config_Transaction_Rejected(void);
+
 bool App_Gen_Has_Configured_Signals(void);
 bool App_Gen_Is_Signal_Configured(uint16_t signal_key);
+uint16_t App_Gen_Get_Config_Generation(void);
+uint16_t App_Gen_Get_Active_Signal_Count(void);
+uint8_t App_Gen_Get_Active_PGN_Count(void);
+bool App_Gen_Active_Profile_Can_Start(void);
 void App_Gen_Load_Defaults(void);
 void App_Gen_Clear(void);
 

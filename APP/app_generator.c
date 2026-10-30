@@ -24,6 +24,23 @@ static uint32_t s_last_telemetry_ms = 0u;
 static uint32_t s_last_can_warn_ms = 0u;
 static uint32_t s_baud_kbps = APP_DEFAULT_CAN_BAUD_KBPS;
 
+#define APP_CONFIG_PGN_MASK_BYTES \
+    ((J1939_CATALOG_PGN_COUNT + 7u) / 8u)
+
+typedef enum {
+    APP_CONFIG_STATE_IDLE = 0,
+    APP_CONFIG_STATE_OPEN,
+    APP_CONFIG_STATE_REJECTED
+} App_Config_State_t;
+
+static App_Config_State_t s_config_state;
+static uint8_t  s_config_signal_mask[J1939_CATALOG_ACTIVE_MASK_BYTES];
+static uint8_t  s_config_pgn_mask[APP_CONFIG_PGN_MASK_BYTES];
+static uint16_t s_config_expected_count;
+static uint16_t s_config_staged_count;
+static uint8_t  s_config_staged_pgn_count;
+static uint8_t  s_config_schedulable_pgn_count;
+
 /* =============================================================================
  * PRIVATE: Compact-catalog identity and value-store helpers
  * ============================================================================= */
@@ -39,6 +56,46 @@ static bool prv_is_short_scalar(uint16_t index)
            (pgn->payload_length <= 8u) &&
            ((uint32_t)sig->start_bit + sig->bit_length <=
             (uint32_t)pgn->payload_length * 8u);
+}
+
+static bool prv_is_scalar(uint16_t index)
+{
+    if (index >= J1939_CATALOG_SIGNAL_COUNT) {
+        return false;
+    }
+    const J1939_Catalog_Signal_t* sig = &J1939_Catalog_Signals[index];
+    const J1939_Catalog_PGN_t* pgn = &J1939_Catalog_PGNs[sig->pgn_index];
+    return ((sig->flags & J1939_CAT_SIG_BLOB) == 0u) &&
+           (sig->bit_length > 0u) && (sig->bit_length <= 32u) &&
+           ((uint32_t)sig->start_bit + sig->bit_length <=
+            (uint32_t)pgn->payload_length * 8u);
+}
+
+static bool prv_pgn_is_schedulable(uint8_t pgn_index)
+{
+    const J1939_Catalog_PGN_t* pgn = &J1939_Catalog_PGNs[pgn_index];
+    return (pgn->transmission_mode != J1939_CAT_TX_ON_REQUEST) &&
+           (pgn->period_ms > 0u) &&
+           (pgn->payload_length <= 8u) &&
+           ((pgn->flags & J1939_CAT_PGN_REQUIRES_TP) == 0u);
+}
+
+static bool prv_mask_test(const uint8_t* mask, uint16_t index)
+{
+    return (mask[index / 8u] & (uint8_t)(1u << (index % 8u))) != 0u;
+}
+
+static void prv_mask_set(uint8_t* mask, uint16_t index)
+{
+    mask[index / 8u] |= (uint8_t)(1u << (index % 8u));
+}
+
+static App_Config_Transaction_Status_t prv_config_reject(
+    App_Config_Transaction_Status_t status)
+{
+    J1939_Value_Store_Abort();
+    s_config_state = APP_CONFIG_STATE_REJECTED;
+    return status;
 }
 
 static uint16_t prv_find_unique_catalog_index(uint32_t spn,
@@ -295,6 +352,13 @@ void App_Gen_Init(uint32_t baud_kbps)
     s_test_duration_ms = 0u;
     s_total_frames_sent = 0u;
     s_baud_kbps = baud_kbps;
+    s_config_state = APP_CONFIG_STATE_IDLE;
+    s_config_expected_count = 0u;
+    s_config_staged_count = 0u;
+    s_config_staged_pgn_count = 0u;
+    s_config_schedulable_pgn_count = 0u;
+    memset(s_config_signal_mask, 0, sizeof(s_config_signal_mask));
+    memset(s_config_pgn_mask, 0, sizeof(s_config_pgn_mask));
 }
 
 bool App_Gen_Set_Baud(uint32_t baud_kbps)
@@ -316,7 +380,7 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
     if (out_catalog_index != NULL) {
         *out_catalog_index = J1939_CATALOG_INDEX_INVALID;
     }
-    if (req == NULL) {
+    if ((req == NULL) || (s_config_state != APP_CONFIG_STATE_IDLE)) {
         return APP_CFG_UNKNOWN_SPN;
     }
 
@@ -436,6 +500,10 @@ App_Set_Const_Status_t App_Gen_Set_Constant_Raw(uint16_t signal_key,
                                                 uint32_t raw_value,
                                                 uint32_t* applied_raw_value)
 {
+    if (s_config_state != APP_CONFIG_STATE_IDLE) {
+        return APP_SET_CONST_TRANSACTION_OPEN;
+    }
+
     /* Direct signal_key -> catalog index mapping covers all catalog keys. */
     const uint16_t index = J1939_Catalog_Index_From_Key(signal_key);
     if (index == J1939_CATALOG_INDEX_INVALID) {
@@ -448,6 +516,173 @@ App_Set_Const_Status_t App_Gen_Set_Constant_Raw(uint16_t signal_key,
         *applied_raw_value = raw_value;
     }
     return status;
+}
+
+App_Config_Transaction_Status_t App_Gen_Begin_Config(
+    uint16_t expected_scalar_count)
+{
+    if (s_is_running) {
+        return APP_CONFIG_TXN_INVALID_STATE;
+    }
+    if (s_config_state != APP_CONFIG_STATE_IDLE) {
+        return APP_CONFIG_TXN_ALREADY_OPEN;
+    }
+    if (expected_scalar_count > J1939_PROFILE_SIGNAL_CAPACITY) {
+        return APP_CONFIG_TXN_RESOURCE_FULL;
+    }
+    if (J1939_Value_Store_Begin(J1939_VALUE_STORE_BEGIN_EMPTY) !=
+        J1939_VALUE_STORE_OK) {
+        return APP_CONFIG_TXN_INTERNAL_ERROR;
+    }
+
+    memset(s_config_signal_mask, 0, sizeof(s_config_signal_mask));
+    memset(s_config_pgn_mask, 0, sizeof(s_config_pgn_mask));
+    s_config_expected_count = expected_scalar_count;
+    s_config_staged_count = 0u;
+    s_config_staged_pgn_count = 0u;
+    s_config_schedulable_pgn_count = 0u;
+    s_config_state = APP_CONFIG_STATE_OPEN;
+    return APP_CONFIG_TXN_OK;
+}
+
+App_Config_Transaction_Status_t App_Gen_Stage_Constant_Raw(
+    uint16_t signal_key,
+    uint32_t raw_value,
+    uint16_t* out_staged_count)
+{
+    if (out_staged_count != NULL) {
+        *out_staged_count = s_config_staged_count;
+    }
+    if (s_config_state == APP_CONFIG_STATE_IDLE) {
+        return APP_CONFIG_TXN_NOT_OPEN;
+    }
+    if (s_config_state == APP_CONFIG_STATE_REJECTED) {
+        return APP_CONFIG_TXN_REJECTED;
+    }
+
+    const uint16_t index = J1939_Catalog_Index_From_Key(signal_key);
+    if (index == J1939_CATALOG_INDEX_INVALID) {
+        return prv_config_reject(APP_CONFIG_TXN_UNKNOWN_KEY);
+    }
+    if (!prv_is_scalar(index)) {
+        return prv_config_reject(APP_CONFIG_TXN_UNSUPPORTED_SIGNAL);
+    }
+
+    const J1939_Value_Store_Status_t check =
+        J1939_Value_Store_Check_Raw(signal_key, raw_value);
+    if (check == J1939_VALUE_STORE_VALUE_OUT_OF_RANGE) {
+        return prv_config_reject(APP_CONFIG_TXN_VALUE_OUT_OF_RANGE);
+    }
+    if (check != J1939_VALUE_STORE_OK) {
+        return prv_config_reject(APP_CONFIG_TXN_UNSUPPORTED_SIGNAL);
+    }
+
+    const bool new_signal = !prv_mask_test(s_config_signal_mask, index);
+    const uint8_t pgn_index = J1939_Catalog_Signals[index].pgn_index;
+    const bool new_pgn = !prv_mask_test(s_config_pgn_mask, pgn_index);
+    if (new_signal &&
+        (s_config_staged_count >= J1939_PROFILE_SIGNAL_CAPACITY)) {
+        return prv_config_reject(APP_CONFIG_TXN_RESOURCE_FULL);
+    }
+    if (new_pgn && prv_pgn_is_schedulable(pgn_index) &&
+        (s_config_schedulable_pgn_count >= J1939_PROFILE_PGN_CAPACITY)) {
+        return prv_config_reject(APP_CONFIG_TXN_RESOURCE_FULL);
+    }
+
+    if (J1939_Value_Store_Set_Raw(signal_key, raw_value) !=
+        J1939_VALUE_STORE_OK) {
+        return prv_config_reject(APP_CONFIG_TXN_INTERNAL_ERROR);
+    }
+
+    if (new_signal) {
+        prv_mask_set(s_config_signal_mask, index);
+        s_config_staged_count++;
+    }
+    if (new_pgn) {
+        prv_mask_set(s_config_pgn_mask, pgn_index);
+        s_config_staged_pgn_count++;
+        if (prv_pgn_is_schedulable(pgn_index)) {
+            s_config_schedulable_pgn_count++;
+        }
+    }
+    if (out_staged_count != NULL) {
+        *out_staged_count = s_config_staged_count;
+    }
+    return APP_CONFIG_TXN_OK;
+}
+
+App_Config_Transaction_Status_t App_Gen_Commit_Config(
+    uint16_t* out_generation,
+    uint16_t* out_signal_count,
+    uint8_t* out_pgn_count)
+{
+    if (s_config_state == APP_CONFIG_STATE_IDLE) {
+        return APP_CONFIG_TXN_NOT_OPEN;
+    }
+    if (s_config_state == APP_CONFIG_STATE_REJECTED) {
+        s_config_state = APP_CONFIG_STATE_IDLE;
+        J1939_Value_Store_Abort();
+        return APP_CONFIG_TXN_REJECTED;
+    }
+    if (s_config_staged_count != s_config_expected_count) {
+        J1939_Value_Store_Abort();
+        s_config_state = APP_CONFIG_STATE_IDLE;
+        return APP_CONFIG_TXN_COUNT_MISMATCH;
+    }
+
+    uint16_t generation = 0u;
+    if (J1939_Value_Store_Commit(&generation) != J1939_VALUE_STORE_OK) {
+        s_config_state = APP_CONFIG_STATE_IDLE;
+        return APP_CONFIG_TXN_INTERNAL_ERROR;
+    }
+
+    /* Generator must be stopped. The value bank is already complete, so this
+     * deterministic rebuild cannot expose a partially configured payload. */
+    Pattern_Generator_Init(hal_time_ms());
+    J1939_Sched_Clear();
+    bool scheduler_ok = true;
+    for (uint16_t i = 0u; i < J1939_CATALOG_SIGNAL_COUNT; i++) {
+        if (J1939_Value_Store_Is_Active(i) &&
+            !J1939_Sched_Add_Catalog_Signal(i, 0u, hal_time_ms())) {
+            scheduler_ok = false;
+        }
+    }
+    s_config_state = APP_CONFIG_STATE_IDLE;
+    if (!scheduler_ok) {
+        J1939_Sched_Clear();
+        return APP_CONFIG_TXN_INTERNAL_ERROR;
+    }
+
+    if (out_generation != NULL) {
+        *out_generation = generation;
+    }
+    if (out_signal_count != NULL) {
+        *out_signal_count = s_config_staged_count;
+    }
+    if (out_pgn_count != NULL) {
+        *out_pgn_count = s_config_staged_pgn_count;
+    }
+    return APP_CONFIG_TXN_OK;
+}
+
+void App_Gen_Abort_Config(void)
+{
+    J1939_Value_Store_Abort();
+    s_config_state = APP_CONFIG_STATE_IDLE;
+    s_config_expected_count = 0u;
+    s_config_staged_count = 0u;
+    s_config_staged_pgn_count = 0u;
+    s_config_schedulable_pgn_count = 0u;
+}
+
+bool App_Gen_Config_Transaction_Open(void)
+{
+    return s_config_state != APP_CONFIG_STATE_IDLE;
+}
+
+bool App_Gen_Config_Transaction_Rejected(void)
+{
+    return s_config_state == APP_CONFIG_STATE_REJECTED;
 }
 
 bool App_Gen_Has_Configured_Signals(void)
@@ -465,8 +700,59 @@ bool App_Gen_Is_Signal_Configured(uint16_t signal_key)
            Pattern_Generator_Is_Registered(catalog_index);
 }
 
+uint16_t App_Gen_Get_Config_Generation(void)
+{
+    return J1939_Value_Store_Get_Generation();
+}
+
+uint16_t App_Gen_Get_Active_Signal_Count(void)
+{
+    return J1939_Sched_Get_Signal_Count();
+}
+
+uint8_t App_Gen_Get_Active_PGN_Count(void)
+{
+    uint8_t mask[APP_CONFIG_PGN_MASK_BYTES];
+    memset(mask, 0, sizeof(mask));
+    uint8_t count = 0u;
+    for (uint16_t i = 0u; i < J1939_CATALOG_SIGNAL_COUNT; i++) {
+        if (!J1939_Value_Store_Is_Active(i) &&
+            !Pattern_Generator_Is_Registered(i)) {
+            continue;
+        }
+        const uint8_t pgn_index = J1939_Catalog_Signals[i].pgn_index;
+        if (!prv_mask_test(mask, pgn_index)) {
+            prv_mask_set(mask, pgn_index);
+            count++;
+        }
+    }
+    return count;
+}
+
+bool App_Gen_Active_Profile_Can_Start(void)
+{
+    if ((s_config_state != APP_CONFIG_STATE_IDLE) ||
+        !App_Gen_Has_Configured_Signals()) {
+        return false;
+    }
+    for (uint16_t i = 0u; i < J1939_CATALOG_SIGNAL_COUNT; i++) {
+        if (!J1939_Value_Store_Is_Active(i) &&
+            !Pattern_Generator_Is_Registered(i)) {
+            continue;
+        }
+        const J1939_Catalog_PGN_t* pgn =
+            &J1939_Catalog_PGNs[J1939_Catalog_Signals[i].pgn_index];
+        if ((pgn->payload_length > 8u) ||
+            ((pgn->flags & J1939_CAT_PGN_REQUIRES_TP) != 0u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void App_Gen_Load_Defaults(void)
 {
+    App_Gen_Abort_Config();
     Pattern_Generator_Init(hal_time_ms());
     J1939_Sched_Clear();
     prv_store_clear();
@@ -481,6 +767,7 @@ void App_Gen_Load_Defaults(void)
 
 void App_Gen_Clear(void)
 {
+    App_Gen_Abort_Config();
     Pattern_Generator_Init(hal_time_ms());
     J1939_Sched_Clear();
     prv_store_clear();
@@ -489,6 +776,9 @@ void App_Gen_Clear(void)
 
 void App_Gen_Start(uint32_t duration_sec, J1939_Sched_Mode_t mode)
 {
+    if (!App_Gen_Active_Profile_Can_Start()) {
+        return;
+    }
     uint32_t now = hal_time_ms();
 
     J1939_Sched_Set_Mode(mode);

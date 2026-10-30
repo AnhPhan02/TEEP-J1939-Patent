@@ -166,6 +166,11 @@ host-test: catalog-test
 		tests/test_j1939_scheduler_phase3.c $(MID_NO_LINK) $(GENERATED_C) \
 		-lm -o $(HOST_DIR)/test_j1939_scheduler_phase3.exe
 	$(HOST_DIR)/test_j1939_scheduler_phase3.exe
+	$(HOST_CC) $(HOST_CFLAGS) -Werror -DENABLE_179_SCALAR=1 \
+		tests/test_j1939_phase4a_transaction.c $(wildcard MID/*.c) \
+		APP/app_control_can.c APP/app_generator.c \
+		-lm -o $(HOST_DIR)/test_j1939_phase4a_transaction.exe
+	$(HOST_DIR)/test_j1939_phase4a_transaction.exe
 	$(HOST_CC) $(HOST_CFLAGS) tests/test_j1939_r1_identity.c $(MID_NO_LINK) \
 		$(GENERATED_C) $(LEGACY_C) -lm -o $(HOST_DIR)/test_j1939_r1_identity.exe
 	$(HOST_DIR)/test_j1939_r1_identity.exe
