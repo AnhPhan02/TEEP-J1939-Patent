@@ -473,6 +473,43 @@ static void prv_handle_set_signal_raw(uint8_t sequence,
                        (status == APP_CONTROL_STATUS_OK) ? raw_value : 0u);
 }
 
+static void prv_handle_write_blob(uint8_t sequence,
+                                  const uint8_t* data,
+                                  uint8_t* response)
+{
+    const uint16_t signal_key = data[2];
+    const uint8_t total_length = data[3];
+    const uint8_t offset = data[4];
+    uint16_t written = 0u;
+    const App_Control_Status_t status = prv_txn_status(
+        App_Gen_Stage_Blob_Chunk(signal_key, total_length, offset, &data[5],
+                                 &written));
+    prv_build_response(response, APP_CONTROL_OPCODE_WRITE_BLOB, sequence,
+                       status, total_length, written);
+}
+
+static void prv_handle_set_global_percent(uint8_t sequence,
+                                          const uint8_t* data,
+                                          uint8_t* response)
+{
+    if (!prv_bytes_are_zero_from(data, 4u)) {
+        prv_build_response(response, APP_CONTROL_OPCODE_SET_GLOBAL_PERCENT,
+                           sequence, APP_CONTROL_STATUS_BAD_ARGUMENT, 0u, 0u);
+        return;
+    }
+
+    uint16_t generation = 0u;
+    uint16_t affected = 0u;
+    uint16_t excluded = 0u;
+    const App_Control_Status_t status = prv_txn_status(
+        App_Gen_Set_Global_Percent(prv_read_u16_le(&data[2]), &generation,
+                                   &affected, &excluded));
+    const uint8_t excluded_u8 = (excluded > 0xFFu) ? 0xFFu : (uint8_t)excluded;
+    prv_build_response(response, APP_CONTROL_OPCODE_SET_GLOBAL_PERCENT,
+                       sequence, status, excluded_u8,
+                       (uint32_t)generation | ((uint32_t)affected << 16));
+}
+
 static void prv_handle_commit_config(uint8_t sequence,
                                      const uint8_t* data,
                                      uint8_t* response)
@@ -599,6 +636,12 @@ static void prv_handle_control_frame(const J1939_Frame_Header_t* header,
             break;
         case APP_CONTROL_OPCODE_ABORT_CONFIG:
             prv_handle_abort_config(sequence, data, response);
+            break;
+        case APP_CONTROL_OPCODE_WRITE_BLOB:
+            prv_handle_write_blob(sequence, data, response);
+            break;
+        case APP_CONTROL_OPCODE_SET_GLOBAL_PERCENT:
+            prv_handle_set_global_percent(sequence, data, response);
             break;
         case APP_CONTROL_OPCODE_START:
             prv_handle_start(sequence, data, response);
