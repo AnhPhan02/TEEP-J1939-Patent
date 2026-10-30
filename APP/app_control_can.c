@@ -238,8 +238,7 @@ static void prv_handle_set_const(uint8_t sequence,
                                  const uint8_t* data,
                                  uint8_t* response)
 {
-    const J1939_Signal_Key_t signal_key =
-        (J1939_Signal_Key_t)prv_read_u16_le(&data[2]);
+    const uint16_t signal_key = prv_read_u16_le(&data[2]);
     const uint32_t requested_raw = prv_read_u32_le(&data[4]);
     uint32_t applied_raw = 0u;
 
@@ -340,7 +339,7 @@ static void prv_handle_get_status(uint8_t sequence,
     if (App_Gen_Is_Running()) {
         runtime_flags |= APP_CONTROL_RUNTIME_RUNNING;
     }
-    if (App_Gen_Is_Signal_Configured(J1939_SIGNAL_KEY_ENGINE_SPEED)) {
+    if (App_Gen_Is_Signal_Configured(J1939_KEY_EEC1_SPN190)) {
         runtime_flags |= APP_CONTROL_RUNTIME_ENGINE_SPEED_CONFIGURED;
     }
     prv_build_response(response, APP_CONTROL_OPCODE_GET_STATUS, sequence,

@@ -9,6 +9,7 @@
 #include "app_config.h"
 #include "j1939_link.h"
 #include "j1939_encode_decode.h"
+#include "j1939_value_store.h"
 #include "hal_console.h"
 #include "hal_time.h"
 #include "hal_led.h"
@@ -22,6 +23,120 @@ static uint32_t s_total_frames_sent = 0u;
 static uint32_t s_last_telemetry_ms = 0u;
 static uint32_t s_last_can_warn_ms = 0u;
 static uint32_t s_baud_kbps = APP_DEFAULT_CAN_BAUD_KBPS;
+
+/* =============================================================================
+ * PRIVATE: Compact-catalog identity and value-store helpers
+ * ============================================================================= */
+static bool prv_is_short_scalar(uint16_t index)
+{
+    if (index >= J1939_CATALOG_SIGNAL_COUNT) {
+        return false;
+    }
+    const J1939_Catalog_Signal_t* sig = &J1939_Catalog_Signals[index];
+    const J1939_Catalog_PGN_t* pgn = &J1939_Catalog_PGNs[sig->pgn_index];
+    return ((sig->flags & J1939_CAT_SIG_BLOB) == 0u) &&
+           (sig->bit_length > 0u) && (sig->bit_length <= 32u) &&
+           (pgn->payload_length <= 8u) &&
+           ((uint32_t)sig->start_bit + sig->bit_length <=
+            (uint32_t)pgn->payload_length * 8u);
+}
+
+static uint16_t prv_find_unique_catalog_index(uint32_t spn,
+                                               uint16_t* match_count)
+{
+    uint16_t found = J1939_CATALOG_INDEX_INVALID;
+    uint16_t count = 0u;
+    for (uint16_t i = 0u; i < J1939_CATALOG_SIGNAL_COUNT; i++) {
+        if (J1939_Catalog_Signals[i].spn == spn) {
+            if (found == J1939_CATALOG_INDEX_INVALID) {
+                found = i;
+            }
+            count++;
+        }
+    }
+    if (match_count != NULL) {
+        *match_count = count;
+    }
+    return (count == 1u) ? found : J1939_CATALOG_INDEX_INVALID;
+}
+
+/* Current physical value of an active catalog signal: store, else waveform. */
+static float prv_signal_value(uint16_t catalog_index)
+{
+    uint32_t raw;
+    if (J1939_Value_Store_Get_Raw(catalog_index, &raw)) {
+        const J1939_Catalog_Scale_t* scale = &J1939_Catalog_Scales[
+            J1939_Catalog_Signals[catalog_index].scale_index];
+        return ((float)raw * scale->resolution) + scale->offset;
+    }
+    return Pattern_Generator_Get_Value(catalog_index, 0.0f);
+}
+
+/* One-record transaction on the active configuration. */
+static J1939_Value_Store_Status_t prv_store_update(uint16_t signal_key,
+                                                   bool active,
+                                                   uint32_t raw_value)
+{
+    J1939_Value_Store_Status_t status =
+        J1939_Value_Store_Begin(J1939_VALUE_STORE_BEGIN_COPY_ACTIVE);
+    if (status != J1939_VALUE_STORE_OK) {
+        return status;
+    }
+    status = active ? J1939_Value_Store_Set_Raw(signal_key, raw_value)
+                    : J1939_Value_Store_Remove(signal_key);
+    if (status != J1939_VALUE_STORE_OK) {
+        J1939_Value_Store_Abort();
+        return status;
+    }
+    return J1939_Value_Store_Commit(NULL);
+}
+
+static void prv_store_clear(void)
+{
+    J1939_Value_Store_Abort();
+    (void)J1939_Value_Store_Begin(J1939_VALUE_STORE_BEGIN_EMPTY);
+    (void)J1939_Value_Store_Commit(NULL);
+}
+
+/* Constant signals live in the value store only; any waveform for the same
+ * signal is released from the pattern pool. Every check precedes mutation. */
+static App_Set_Const_Status_t prv_set_constant(uint16_t index,
+                                               uint32_t raw_value,
+                                               uint32_t timeframe_ms,
+                                               float t_start,
+                                               float t_dur)
+{
+    (void)t_start;
+    (void)t_dur;
+    if (index >= J1939_CATALOG_SIGNAL_COUNT) {
+        return APP_SET_CONST_UNKNOWN_KEY;
+    }
+    if (!prv_is_short_scalar(index)) {
+        return APP_SET_CONST_UNSUPPORTED_SIGNAL;
+    }
+
+    const uint16_t key = J1939_Catalog_Signals[index].signal_key;
+    switch (J1939_Value_Store_Check_Raw(key, raw_value)) {
+        case J1939_VALUE_STORE_OK:
+            break;
+        case J1939_VALUE_STORE_VALUE_OUT_OF_RANGE:
+            return APP_SET_CONST_VALUE_OUT_OF_RANGE;
+        case J1939_VALUE_STORE_UNSUPPORTED_SIGNAL:
+            return APP_SET_CONST_UNSUPPORTED_SIGNAL;
+        default:
+            return APP_SET_CONST_UNKNOWN_KEY;
+    }
+    if (!J1939_Sched_Can_Add_Catalog_Signal(index)) {
+        return APP_SET_CONST_RESOURCE_FULL;
+    }
+    if (prv_store_update(key, true, raw_value) != J1939_VALUE_STORE_OK) {
+        return APP_SET_CONST_RESOURCE_FULL;
+    }
+
+    (void)J1939_Sched_Add_Catalog_Signal(index, timeframe_ms, hal_time_ms());
+    (void)Pattern_Generator_Unregister(index);
+    return APP_SET_CONST_OK;
+}
 
 /* =============================================================================
  * PRIVATE: Console reports
@@ -105,7 +220,7 @@ static void prv_print_can_busy_warning(void)
 static void prv_print_telemetry(void)
 {
 #if APP_TELEMETRY_SHOW_SIGNALS
-    uint8_t count = J1939_Sched_Get_Signal_Count();
+    uint16_t count = J1939_Sched_Get_Signal_Count();
     if (count == 0u) {
         return;
     }
@@ -115,16 +230,18 @@ static void prv_print_telemetry(void)
     hal_console_write_u32(s_total_frames_sent);
 
 #if APP_TELEMETRY_SHOW_SIGNALS
-    uint8_t display_count = (count <= 8u) ? count : 6u;
-    for (uint8_t i = 0; i < display_count; i++) {
-        const J1939_Sched_Signal_t* sig = J1939_Sched_Get_Signal(i);
+    uint16_t display_count = (count <= 8u) ? count : 6u;
+    for (uint16_t i = 0; i < display_count; i++) {
+        uint16_t catalog_index;
+        if (!J1939_Sched_Get_Active_Catalog_Index(i, &catalog_index)) {
+            continue;
+        }
+        const J1939_Catalog_Signal_t* sig =
+            &J1939_Catalog_Signals[catalog_index];
         hal_console_write(" | SPN ");
-        hal_console_write_u32(sig->def->spn);
+        hal_console_write_u32(sig->spn);
         hal_console_write(": ");
-        hal_console_write_float(
-            Pattern_Generator_Get_Value(sig->signal_id, 0.0f), 1);
-        hal_console_write(" ");
-        hal_console_write(sig->def->unit);
+        hal_console_write_float(prv_signal_value(catalog_index), 1);
     }
     if (count > 8u) {
         hal_console_write(" | ... [Total: ");
@@ -138,23 +255,17 @@ static void prv_print_telemetry(void)
 /* =============================================================================
  * PRIVATE: Register one default waveform
  * ============================================================================= */
-static void prv_add_default(uint32_t pgn, uint32_t spn, Pattern_Type_t type,
+static void prv_add_default(uint16_t signal_key, Pattern_Type_t type,
                             float min_v, float max_v, float period_s)
 {
-    const J1939_Signal_Definition_t* def =
-        J1939_Find_Signal_By_PGN_SPN(pgn, spn);
-    if (def == NULL) {
-        return;
-    }
-
-    J1939_Signal_Id_t signal_id = J1939_SIGNAL_ID_INVALID;
-    if (!J1939_Get_Signal_Id(def, &signal_id)) {
+    const uint16_t catalog_index = J1939_Catalog_Index_From_Key(signal_key);
+    if (catalog_index == J1939_CATALOG_INDEX_INVALID) {
         return;
     }
 
     Pattern_Config_t cfg;
     memset(&cfg, 0, sizeof(cfg));
-    cfg.signal_id = signal_id;
+    cfg.catalog_index = catalog_index;
     cfg.pattern_type = type;
     cfg.min_value = min_v;
     cfg.max_value = max_v;
@@ -164,7 +275,8 @@ static void prv_add_default(uint32_t pgn, uint32_t spn, Pattern_Type_t type,
     cfg.update_interval_ms = 10u;
 
     if (Pattern_Generator_Register(&cfg)) {
-        J1939_Sched_Add_Signal(def, 0u, 0.0f, 0.0f, hal_time_ms());
+        (void)J1939_Sched_Add_Catalog_Signal(catalog_index, 0u,
+                                              hal_time_ms());
     }
 }
 
@@ -176,6 +288,7 @@ void App_Gen_Init(uint32_t baud_kbps)
     /* CAN controller is brought up by the OP lifecycle before this call */
     Pattern_Generator_Init(hal_time_ms());
     J1939_Sched_Clear();
+    J1939_Value_Store_Init();
     J1939_Sched_Set_Tx_Log(APP_TXLOG_DEFAULT_ON != 0u);
     s_is_running = false;
     s_test_start_ms = 0u;
@@ -198,50 +311,73 @@ uint32_t App_Gen_Get_Baud(void)
 }
 
 App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
-                                          const J1939_Signal_Definition_t** out_def)
+                                          uint16_t* out_catalog_index)
 {
-    if (out_def != NULL) {
-        *out_def = NULL;
+    if (out_catalog_index != NULL) {
+        *out_catalog_index = J1939_CATALOG_INDEX_INVALID;
     }
     if (req == NULL) {
         return APP_CFG_UNKNOWN_SPN;
     }
 
-    const J1939_Signal_Definition_t* def = NULL;
+    uint16_t index = J1939_CATALOG_INDEX_INVALID;
     if (req->pgn != 0u) {
-        def = J1939_Find_Signal_By_PGN_SPN(req->pgn, req->spn);
-    } 
-    
-    else {
+        index = J1939_Catalog_Find_Signal_Index(req->pgn, req->spn);
+    } else {
         uint16_t match_count = 0u;
-        def = J1939_Find_Unique_Signal_By_SPN(req->spn, &match_count);
+        index = prv_find_unique_catalog_index(req->spn, &match_count);
         if (match_count > 1u) {
             return APP_CFG_AMBIGUOUS_SPN;
         }
     }
-    
-    if (def == NULL) {
+
+    if (index == J1939_CATALOG_INDEX_INVALID) {
         return APP_CFG_UNKNOWN_SPN;
     }
-    if (out_def != NULL) {
-        *out_def = def;
+    if (out_catalog_index != NULL) {
+        *out_catalog_index = index;
     }
-    if (!J1939_Is_Signal_8Byte_Scalar(def)) {
+    if (!prv_is_short_scalar(index)) {
         return APP_CFG_UNSUPPORTED_SIGNAL;
     }
 
-    J1939_Signal_Id_t signal_id = J1939_SIGNAL_ID_INVALID;
-    if (!J1939_Get_Signal_Id(def, &signal_id)) {
-        return APP_CFG_UNKNOWN_SPN;
+    if (req->type == PATTERN_CONSTANT) {
+        /* Use param1 as the constant if in range, otherwise midpoint. */
+        const float physical =
+            (req->param1 >= req->min_value && req->param1 <= req->max_value)
+                ? req->param1
+                : (req->min_value + req->max_value) * 0.5f;
+        const J1939_Catalog_Signal_t* cat = &J1939_Catalog_Signals[index];
+        const J1939_Catalog_Scale_t* scale = &J1939_Catalog_Scales[cat->scale_index];
+        const float raw_f = (physical - scale->offset) / scale->resolution;
+        uint32_t raw = cat->raw_min;
+        if (raw_f >= (float)cat->raw_max) {
+            raw = cat->raw_max;
+        } else if (raw_f > (float)cat->raw_min) {
+            raw = (uint32_t)(raw_f + 0.5f);
+        }
+
+        switch (prv_set_constant(index, raw, req->timeframe_ms,
+                                 req->t_start, req->t_dur)) {
+            case APP_SET_CONST_OK:
+                return APP_CFG_OK;
+            case APP_SET_CONST_UNSUPPORTED_SIGNAL:
+                return APP_CFG_UNSUPPORTED_SIGNAL;
+            case APP_SET_CONST_UNKNOWN_KEY:
+                return APP_CFG_UNKNOWN_SPN;
+            default:
+                return APP_CFG_TABLE_FULL;
+        }
     }
-    if (!Pattern_Generator_Can_Register(signal_id) ||
-        !J1939_Sched_Can_Add_Signal(def)) {
+
+    if (!Pattern_Generator_Can_Register(index) ||
+        !J1939_Sched_Can_Add_Catalog_Signal(index)) {
         return APP_CFG_TABLE_FULL;
     }
 
     Pattern_Config_t cfg;
     memset(&cfg, 0, sizeof(cfg));
-    cfg.signal_id = signal_id;
+    cfg.catalog_index = index;
     cfg.pattern_type = req->type;
     cfg.min_value = req->min_value;
     cfg.max_value = req->max_value;
@@ -257,15 +393,6 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
     cfg.sine_period_seconds = period;
 
     switch (cfg.pattern_type) {
-        case PATTERN_CONSTANT:
-            /* Use param1 as the constant if in range, otherwise midpoint */
-            if (req->param1 >= req->min_value && req->param1 <= req->max_value) {
-                cfg.initial_value = req->param1;
-            } else {
-                cfg.initial_value = (req->min_value + req->max_value) * 0.5f;
-            }
-            break;
-
         case PATTERN_STEP:
             cfg.step_size = (req->max_value - req->min_value) / 8.0f;
             cfg.step_interval_ms = (uint32_t)(period * 1000.0f / 16.0f);
@@ -290,66 +417,37 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
     }
 
     /* Both capacity checks above are read-only. With the single-threaded APP
-     * owner, the two following mutations therefore succeed as one logical
+     * owner, the following mutations therefore succeed as one logical
      * registration and cannot leave a half-configured signal behind. */
     if (!Pattern_Generator_Register(&cfg)) {
         return APP_CFG_TABLE_FULL;
     }
-    if (!J1939_Sched_Add_Signal(def, req->timeframe_ms, req->t_start, req->t_dur, hal_time_ms())) {
+    if (!J1939_Sched_Add_Catalog_Signal(index, req->timeframe_ms,
+                                        hal_time_ms())) {
         return APP_CFG_TABLE_FULL;
+    }
+    if (J1939_Value_Store_Is_Active(index)) {
+        (void)prv_store_update(J1939_Catalog_Signals[index].signal_key, false, 0u);
     }
     return APP_CFG_OK;
 }
 
-App_Set_Const_Status_t App_Gen_Set_Constant_Raw(J1939_Signal_Key_t signal_key,
+App_Set_Const_Status_t App_Gen_Set_Constant_Raw(uint16_t signal_key,
                                                 uint32_t raw_value,
                                                 uint32_t* applied_raw_value)
 {
-    const J1939_Signal_Definition_t* def =
-        J1939_Find_Signal_By_Key(signal_key);
-    if (def == NULL) {
+    /* Direct signal_key -> catalog index mapping covers all catalog keys. */
+    const uint16_t index = J1939_Catalog_Index_From_Key(signal_key);
+    if (index == J1939_CATALOG_INDEX_INVALID) {
         return APP_SET_CONST_UNKNOWN_KEY;
     }
-    if (!J1939_Is_Signal_8Byte_Scalar(def) ||
-        (def->resolution == 0.0f)) {
-        return APP_SET_CONST_UNSUPPORTED_SIGNAL;
-    }
 
-    const uint32_t max_raw = (def->num_bits >= 32u)
-        ? 0xFFFFFFFFu
-        : (((uint32_t)1u << def->num_bits) - 1u);
-    if (raw_value > max_raw) {
-        return APP_SET_CONST_VALUE_OUT_OF_RANGE;
+    const App_Set_Const_Status_t status =
+        prv_set_constant(index, raw_value, 0u, 0.0f, 0.0f);
+    if ((status == APP_SET_CONST_OK) && (applied_raw_value != NULL)) {
+        *applied_raw_value = raw_value;
     }
-
-    const float physical_value = ((float)raw_value * def->resolution) +
-                                 def->offset;
-    if (!J1939_Is_Value_Valid(def, physical_value)) {
-        return APP_SET_CONST_VALUE_OUT_OF_RANGE;
-    }
-
-    App_Signal_Request_t request;
-    memset(&request, 0, sizeof(request));
-    request.pgn = def->pgn;
-    request.spn = def->spn;
-    request.type = PATTERN_CONSTANT;
-    request.min_value = def->min_physical;
-    request.max_value = def->max_physical;
-    request.param1 = physical_value;
-
-    switch (App_Gen_Config_Signal(&request, NULL)) {
-        case APP_CFG_OK:
-            if (applied_raw_value != NULL) {
-                *applied_raw_value = raw_value;
-            }
-            return APP_SET_CONST_OK;
-        case APP_CFG_TABLE_FULL:
-            return APP_SET_CONST_RESOURCE_FULL;
-        case APP_CFG_UNSUPPORTED_SIGNAL:
-            return APP_SET_CONST_UNSUPPORTED_SIGNAL;
-        default:
-            return APP_SET_CONST_UNKNOWN_KEY;
-    }
+    return status;
 }
 
 bool App_Gen_Has_Configured_Signals(void)
@@ -357,34 +455,27 @@ bool App_Gen_Has_Configured_Signals(void)
     return J1939_Sched_Get_Signal_Count() > 0u;
 }
 
-bool App_Gen_Is_Signal_Configured(J1939_Signal_Key_t signal_key)
+bool App_Gen_Is_Signal_Configured(uint16_t signal_key)
 {
-    const J1939_Signal_Definition_t* target =
-        J1939_Find_Signal_By_Key(signal_key);
-    if (target == NULL) {
+    const uint16_t catalog_index = J1939_Catalog_Index_From_Key(signal_key);
+    if (catalog_index == J1939_CATALOG_INDEX_INVALID) {
         return false;
     }
-
-    const uint8_t count = J1939_Sched_Get_Signal_Count();
-    for (uint8_t i = 0u; i < count; i++) {
-        const J1939_Sched_Signal_t* signal = J1939_Sched_Get_Signal(i);
-        if ((signal != NULL) && (signal->def == target)) {
-            return true;
-        }
-    }
-    return false;
+    return J1939_Value_Store_Is_Active(catalog_index) ||
+           Pattern_Generator_Is_Registered(catalog_index);
 }
 
 void App_Gen_Load_Defaults(void)
 {
     Pattern_Generator_Init(hal_time_ms());
     J1939_Sched_Clear();
+    prv_store_clear();
 
-    prv_add_default(PGN_EEC1,  SPN_ENGINE_SPEED,
+    prv_add_default(J1939_KEY_EEC1_SPN190,
                     PATTERN_SINE, 800.0f, 3500.0f, 8.0f);
-    prv_add_default(PGN_EEC2,  SPN_ACCEL_PEDAL_POS,
+    prv_add_default(J1939_KEY_EEC2_SPN91,
                     PATTERN_RAMP, 0.0f, 100.0f, 10.0f);
-    prv_add_default(PGN_CCVS1, SPN_VEHICLE_SPEED,
+    prv_add_default(J1939_KEY_CCVS1_SPN84,
                     PATTERN_RAMP, 0.0f, 120.0f, 15.0f);
 }
 
@@ -392,6 +483,7 @@ void App_Gen_Clear(void)
 {
     Pattern_Generator_Init(hal_time_ms());
     J1939_Sched_Clear();
+    prv_store_clear();
     s_is_running = false;
 }
 
@@ -460,7 +552,7 @@ uint32_t App_Gen_Get_Frames_Sent(void)
 
 void App_Gen_Print_Status(void)
 {
-    uint8_t count = J1939_Sched_Get_Signal_Count();
+    uint16_t count = J1939_Sched_Get_Signal_Count();
 
     hal_console_write_line("----------------- STATUS -----------------");
     hal_console_write("Running: ");
@@ -474,21 +566,27 @@ void App_Gen_Print_Status(void)
     hal_console_write_u32(count);
     hal_console_write_line(NULL);
 
-    for (uint8_t i = 0; i < count; i++) {
-        const J1939_Sched_Signal_t* sig = J1939_Sched_Get_Signal(i);
+    for (uint16_t i = 0; i < count; i++) {
+        uint16_t catalog_index;
+        if (!J1939_Sched_Get_Active_Catalog_Index(i, &catalog_index)) {
+            continue;
+        }
+        const J1939_Catalog_Signal_t* sig =
+            &J1939_Catalog_Signals[catalog_index];
+        const J1939_Catalog_PGN_t* pgn =
+            &J1939_Catalog_PGNs[sig->pgn_index];
         hal_console_write("  #");
         hal_console_write_u32(i + 1u);
+        hal_console_write(" [Key ");
+        hal_console_write_u32(sig->signal_key);
+        hal_console_write("]");
         hal_console_write(": SPN ");
-        hal_console_write_u32(sig->def->spn);
-        hal_console_write(" (");
-        hal_console_write(sig->def->name);
-        hal_console_write(") in PGN ");
-        hal_console_write_u32(sig->def->pgn);
+        hal_console_write_u32(sig->spn);
+        hal_console_write(" in PGN ");
+        hal_console_write_u32(pgn->pgn);
         hal_console_write(" | Cur Val: ");
-        hal_console_write_float(
-            Pattern_Generator_Get_Value(sig->signal_id, 0.0f), 2);
-        hal_console_write(" ");
-        hal_console_write_line(sig->def->unit);
+        hal_console_write_float(prv_signal_value(catalog_index), 2);
+        hal_console_write_line(NULL);
     }
 
     hal_console_write("Total Frames Sent: ");

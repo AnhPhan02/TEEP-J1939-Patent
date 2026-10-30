@@ -15,7 +15,6 @@ extern "C" {
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "j1939_signal_definitions.h"
 #include "j1939_pattern_generator.h"
 #include "j1939_tx_scheduler.h"
 
@@ -52,12 +51,12 @@ bool App_Gen_Set_Baud(uint32_t baud_kbps);
 uint32_t App_Gen_Get_Baud(void);
 
 App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
-                                          const J1939_Signal_Definition_t** out_def);
-App_Set_Const_Status_t App_Gen_Set_Constant_Raw(J1939_Signal_Key_t signal_key,
+                                          uint16_t* out_catalog_index);
+App_Set_Const_Status_t App_Gen_Set_Constant_Raw(uint16_t signal_key,
                                                 uint32_t raw_value,
                                                 uint32_t* applied_raw_value);
 bool App_Gen_Has_Configured_Signals(void);
-bool App_Gen_Is_Signal_Configured(J1939_Signal_Key_t signal_key);
+bool App_Gen_Is_Signal_Configured(uint16_t signal_key);
 void App_Gen_Load_Defaults(void);
 void App_Gen_Clear(void);
 

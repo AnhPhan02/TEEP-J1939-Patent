@@ -77,8 +77,8 @@ static void prv_cmd_config(char* args)
     token = strtok(NULL, " \t");
     req.t_dur = token ? (float)atof(token) : 0.0f;
 
-    const J1939_Signal_Definition_t* def = NULL;
-    switch (App_Gen_Config_Signal(&req, &def)) {
+    uint16_t catalog_index = J1939_CATALOG_INDEX_INVALID;
+    switch (App_Gen_Config_Signal(&req, &catalog_index)) {
         case APP_CFG_UNKNOWN_SPN:
             hal_console_write("[ERR] Signal ");
             if (req.pgn != 0u) {
@@ -107,13 +107,17 @@ static void prv_cmd_config(char* args)
             break;
     }
 
+    const J1939_Catalog_Signal_t* sig =
+        &J1939_Catalog_Signals[catalog_index];
+    const J1939_Catalog_PGN_t* pgn = &J1939_Catalog_PGNs[sig->pgn_index];
+
     hal_console_write("[ACK] CONFIG PGN ");
-    hal_console_write_u32(def->pgn);
+    hal_console_write_u32(pgn->pgn);
     hal_console_write(" / SPN ");
-    hal_console_write_u32(req.spn);
-    hal_console_write(" (");
-    hal_console_write(def->name);
-    hal_console_write(") -> Type: ");
+    hal_console_write_u32(sig->spn);
+    hal_console_write(" / Key ");
+    hal_console_write_u32(sig->signal_key);
+    hal_console_write(" -> Type: ");
     if (type >= 0 && type <= 7) {
         hal_console_write(k_pattern_names[type]);
     } else {
@@ -123,8 +127,6 @@ static void prv_cmd_config(char* args)
     hal_console_write_float(req.min_value, 2);
     hal_console_write(" .. ");
     hal_console_write_float(req.max_value, 2);
-    hal_console_write(" ");
-    hal_console_write(def->unit);
     hal_console_write("] | Timeframe: ");
     if (req.timeframe_ms > 0u) {
         hal_console_write_u32(req.timeframe_ms);
