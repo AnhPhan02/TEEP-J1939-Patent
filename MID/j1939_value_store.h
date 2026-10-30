@@ -23,7 +23,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "j1939_catalog_generated.h"
+#include "j1939_signal_definitions.h"
 
 typedef enum {
     J1939_VALUE_STORE_OK = 0,

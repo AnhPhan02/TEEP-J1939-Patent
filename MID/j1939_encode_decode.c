@@ -321,3 +321,50 @@ bool J1939_Is_Value_Valid(const J1939_Signal_Definition_t* signal_def,
     return (physical_value >= signal_def->min_physical) &&
            (physical_value <= signal_def->max_physical);
 }
+
+/* =============================================================================
+ * Raw field codec (catalog path): no float conversion, explicit boundary.
+ * ============================================================================= */
+static bool prv_raw_field_fits(uint16_t payload_len, uint16_t start_bit,
+                               uint8_t bit_length)
+{
+    const uint32_t buffer_bits = (uint32_t)payload_len * 8u;
+    return (bit_length >= 1u) && (bit_length <= 32u) &&
+           ((uint32_t)start_bit < buffer_bits) &&
+           ((uint32_t)bit_length <= (buffer_bits - start_bit));
+}
+
+bool J1939_Pack_Raw(uint8_t* payload, uint16_t payload_len,
+                    uint16_t start_bit, uint8_t bit_length, uint32_t raw_value)
+{
+    if ((payload == NULL) ||
+        !prv_raw_field_fits(payload_len, start_bit, bit_length)) {
+        return false;
+    }
+    if ((bit_length < 32u) && (raw_value >> bit_length) != 0u) {
+        return false;
+    }
+
+    for (uint8_t i = 0u; i < bit_length; i++) {
+        const uint32_t pos = (uint32_t)start_bit + i;
+        const uint8_t mask = (uint8_t)(1u << (pos % 8u));
+        if ((raw_value >> i) & 1u) {
+            payload[pos / 8u] |= mask;
+        } else {
+            payload[pos / 8u] &= (uint8_t)~mask;
+        }
+    }
+    return true;
+}
+
+bool J1939_Unpack_Raw(const uint8_t* payload, uint16_t payload_len,
+                      uint16_t start_bit, uint8_t bit_length,
+                      uint32_t* out_raw_value)
+{
+    if ((payload == NULL) || (out_raw_value == NULL) ||
+        !prv_raw_field_fits(payload_len, start_bit, bit_length)) {
+        return false;
+    }
+    *out_raw_value = prv_extract_unaligned_bits(payload, start_bit, bit_length);
+    return true;
+}

@@ -1,88 +1,98 @@
 /*
  * =============================================================================
  * FILE : j1939_tx_scheduler.c
- * WHAT : PGN-centric deadline scheduler with a software TX queue.
+ * WHAT : PGN-centric deadline scheduler backed directly by generated catalog.
  * =============================================================================
  */
 
 #include "j1939_tx_scheduler.h"
-#include "j1939_pgn_timing.h"
 #include "j1939_encode_decode.h"
 #include "j1939_link.h"
+#include "j1939_value_store.h"
 #include "hal_console.h"
 #include <stddef.h>
 #include <string.h>
 
 typedef struct {
-    J1939_PGN_Timing_t timing;
-    uint32_t custom_ms;
     uint32_t next_due_ms;
+    uint8_t catalog_pgn_index;
+    uint8_t reserved[3];
 } Sched_PGN_Entry_t;
 
 typedef struct {
-    Sched_PGN_Entry_t* pgn_entry;
-    const J1939_Signal_Definition_t* watch_def;
-    float watch_value;
     uint32_t deadline_ms;
-    uint32_t period_ms;
+    uint16_t period_ms;
+    uint16_t watch_catalog_index;
     uint8_t payload[8];
+    uint8_t pgn_slot;
 } Sched_Tx_Entry_t;
 
-static J1939_Sched_Signal_t s_signals[J1939_SCHED_MAX_SIGNALS];
-static uint8_t              s_signal_count;
-static Sched_PGN_Entry_t    s_pgns[J1939_SCHED_MAX_PGNS];
-static uint8_t              s_pgn_count;
-static Sched_Tx_Entry_t     s_tx_queue[J1939_TX_QUEUE_CAPACITY];
-static uint8_t              s_tx_queue_count;
-static uint32_t             s_tx_retry_not_before_ms;
-static J1939_Sched_Stats_t  s_stats;
-static J1939_Sched_Mode_t   s_mode = J1939_SCHED_MODE_SMOOTH;
+_Static_assert(sizeof(Sched_PGN_Entry_t) == 8u,
+               "PGN runtime entry must remain compact");
+_Static_assert(sizeof(Sched_Tx_Entry_t) == 20u,
+               "TX queue entry must remain compact");
+
+static Sched_PGN_Entry_t   s_pgns[J1939_SCHED_MAX_PGNS];
+static uint8_t             s_pgn_count;
+static Sched_Tx_Entry_t    s_tx_queue[J1939_TX_QUEUE_CAPACITY];
+static uint8_t             s_tx_queue_count;
+static uint32_t            s_tx_retry_not_before_ms;
+static J1939_Sched_Stats_t s_stats;
+static J1939_Sched_Mode_t  s_mode = J1939_SCHED_MODE_SMOOTH;
 
 volatile J1939_Debug_Watch_t g_j1939_dbg = {
-    .watch_signal_id = J1939_SIGNAL_ID_INVALID
+    .watch_catalog_index = J1939_CATALOG_INDEX_INVALID
 };
 
 static bool     s_tx_log_enabled;
 static uint32_t s_tx_seq;
 static uint32_t s_tx_log_dropped;
 
-static uint32_t prv_can_id(const Sched_PGN_Entry_t* entry);
+static bool prv_time_reached(uint32_t now_ms, uint32_t deadline_ms)
+{
+    return (int32_t)(now_ms - deadline_ms) >= 0;
+}
 
-static Sched_PGN_Entry_t* prv_find_pgn(uint32_t pgn)
+static const J1939_Catalog_PGN_t* prv_catalog_pgn(
+    const Sched_PGN_Entry_t* entry)
+{
+    return &J1939_Catalog_PGNs[entry->catalog_pgn_index];
+}
+
+static uint16_t prv_period_ms(const Sched_PGN_Entry_t* entry)
+{
+    /* Generated, reviewed periods are authoritative in every legacy run mode. */
+    return prv_catalog_pgn(entry)->period_ms;
+}
+
+static bool prv_pgn_is_schedulable(const J1939_Catalog_PGN_t* pgn)
+{
+    return (pgn->transmission_mode != J1939_CAT_TX_ON_REQUEST) &&
+           (pgn->period_ms > 0u) &&
+           (pgn->payload_length <= 8u) &&
+           ((pgn->flags & J1939_CAT_PGN_REQUIRES_TP) == 0u);
+}
+
+static bool prv_signal_is_active(uint16_t catalog_index)
+{
+    return J1939_Value_Store_Is_Active(catalog_index) ||
+           Pattern_Generator_Is_Registered(catalog_index);
+}
+
+static Sched_PGN_Entry_t* prv_find_pgn(uint8_t catalog_pgn_index)
 {
     for (uint8_t i = 0u; i < s_pgn_count; i++) {
-        if (s_pgns[i].timing.pgn == pgn) {
+        if (s_pgns[i].catalog_pgn_index == catalog_pgn_index) {
             return &s_pgns[i];
         }
     }
     return NULL;
 }
 
-static J1939_Sched_Signal_t* prv_find_signal(J1939_Signal_Id_t signal_id)
+static Sched_PGN_Entry_t* prv_add_pgn(uint8_t catalog_pgn_index,
+                                      uint32_t now_ms)
 {
-    for (uint8_t i = 0u; i < s_signal_count; i++) {
-        if (s_signals[i].signal_id == signal_id) {
-            return &s_signals[i];
-        }
-    }
-    return NULL;
-}
-
-static uint32_t prv_period_ms(const Sched_PGN_Entry_t* entry)
-{
-    if (entry->custom_ms > 0u) {
-        return entry->custom_ms;
-    }
-    switch (s_mode) {
-        case J1939_SCHED_MODE_SAE:    return entry->timing.sae_ms;
-        case J1939_SCHED_MODE_STRESS: return entry->timing.stress_ms;
-        default:                      return entry->timing.smooth_ms;
-    }
-}
-
-static Sched_PGN_Entry_t* prv_add_pgn(uint32_t pgn, uint32_t now_ms)
-{
-    Sched_PGN_Entry_t* entry = prv_find_pgn(pgn);
+    Sched_PGN_Entry_t* entry = prv_find_pgn(catalog_pgn_index);
     if (entry != NULL) {
         return entry;
     }
@@ -91,18 +101,24 @@ static Sched_PGN_Entry_t* prv_add_pgn(uint32_t pgn, uint32_t now_ms)
     }
 
     entry = &s_pgns[s_pgn_count++];
-    J1939_PGN_Get_Timing(pgn, &entry->timing);
-    entry->custom_ms = 0u;
+    memset(entry, 0, sizeof(*entry));
+    entry->catalog_pgn_index = catalog_pgn_index;
     entry->next_due_ms = now_ms + prv_period_ms(entry);
     return entry;
 }
 
-static bool prv_time_reached(uint32_t now_ms, uint32_t deadline_ms)
+static uint32_t prv_can_id(const Sched_PGN_Entry_t* entry)
 {
-    return (int32_t)(now_ms - deadline_ms) >= 0;
+    const J1939_Catalog_PGN_t* pgn = prv_catalog_pgn(entry);
+    J1939_Frame_Header_t hdr;
+    hdr.pgn = pgn->pgn;
+    hdr.priority = pgn->priority;
+    hdr.source_address = pgn->source_address;
+    hdr.destination_address = J1939_ADDR_GLOBAL;
+    return J1939_Frame_Build_Id(&hdr);
 }
 
-static uint8_t prv_queue_class(uint32_t period_ms)
+static uint8_t prv_queue_class(uint16_t period_ms)
 {
     return (period_ms <= 20u) ? 0u : 1u;
 }
@@ -118,7 +134,8 @@ static bool prv_queue_before(const Sched_Tx_Entry_t* lhs,
     if (lhs->deadline_ms != rhs->deadline_ms) {
         return (int32_t)(lhs->deadline_ms - rhs->deadline_ms) < 0;
     }
-    return prv_can_id(lhs->pgn_entry) < prv_can_id(rhs->pgn_entry);
+    return prv_can_id(&s_pgns[lhs->pgn_slot]) <
+           prv_can_id(&s_pgns[rhs->pgn_slot]);
 }
 
 static bool prv_enqueue(const Sched_Tx_Entry_t* frame)
@@ -177,16 +194,6 @@ static char* prv_put_u32(char* p, uint32_t value)
     return p;
 }
 
-static uint32_t prv_can_id(const Sched_PGN_Entry_t* entry)
-{
-    J1939_Frame_Header_t hdr;
-    hdr.pgn = entry->timing.pgn;
-    hdr.priority = entry->timing.priority;
-    hdr.source_address = entry->timing.source_address;
-    hdr.destination_address = J1939_ADDR_GLOBAL;
-    return J1939_Frame_Build_Id(&hdr);
-}
-
 static void prv_log_tx_frame(const Sched_Tx_Entry_t* frame,
                              J1939_Link_Status_t status,
                              uint32_t seq,
@@ -199,7 +206,7 @@ static void prv_log_tx_frame(const Sched_Tx_Entry_t* frame,
     *p++ = ',';
     p = prv_put_u32(p, now_ms);
     *p++ = ',';
-    p = prv_put_hex(p, prv_can_id(frame->pgn_entry), 8u);
+    p = prv_put_hex(p, prv_can_id(&s_pgns[frame->pgn_slot]), 8u);
     *p++ = ',';
     for (uint8_t i = 0u; i < 8u; i++) {
         p = prv_put_hex(p, frame->payload[i], 2u);
@@ -220,16 +227,22 @@ static void prv_debug_capture(const Sched_Tx_Entry_t* frame,
                               J1939_Link_Status_t status,
                               uint32_t now_ms)
 {
-    if (frame->watch_def == NULL) {
+    if (frame->watch_catalog_index == J1939_CATALOG_INDEX_INVALID) {
         return;
     }
 
-    float decoded = 0.0f;
-    (void)J1939_Decode_Signal_Sized(frame->watch_def, frame->payload,
-                                    sizeof(frame->payload), &decoded);
-    g_j1939_dbg.value = frame->watch_value;
-    g_j1939_dbg.decoded = decoded;
-    g_j1939_dbg.can_id = prv_can_id(frame->pgn_entry);
+    const J1939_Catalog_Signal_t* sig =
+        &J1939_Catalog_Signals[frame->watch_catalog_index];
+    const J1939_Catalog_Scale_t* scale =
+        &J1939_Catalog_Scales[sig->scale_index];
+    uint32_t raw = 0u;
+    if (!J1939_Unpack_Raw(frame->payload, sizeof(frame->payload),
+                          sig->start_bit, (uint8_t)sig->bit_length, &raw)) {
+        return;
+    }
+
+    g_j1939_dbg.decoded = ((float)raw * scale->resolution) + scale->offset;
+    g_j1939_dbg.can_id = prv_can_id(&s_pgns[frame->pgn_slot]);
     for (uint8_t i = 0u; i < 8u; i++) {
         g_j1939_dbg.data[i] = frame->payload[i];
     }
@@ -247,11 +260,11 @@ static void prv_drain_queue(uint32_t now_ms,
 
     while (s_tx_queue_count > 0u) {
         Sched_Tx_Entry_t* frame = &s_tx_queue[0];
-        const J1939_PGN_Timing_t* timing = &frame->pgn_entry->timing;
+        const J1939_Catalog_PGN_t* pgn =
+            prv_catalog_pgn(&s_pgns[frame->pgn_slot]);
         const J1939_Link_Status_t status =
-            J1939_Link_Send(timing->pgn, frame->payload,
-                            sizeof(frame->payload), timing->priority,
-                            timing->source_address);
+            J1939_Link_Send(pgn->pgn, frame->payload, sizeof(frame->payload),
+                            pgn->priority, pgn->source_address);
 
         s_tx_seq++;
         if (s_tx_log_enabled) {
@@ -275,40 +288,72 @@ static void prv_drain_queue(uint32_t now_ms,
             s_stats.failed++;
             g_j1939_dbg.tx_error++;
         }
-        /* Retain the frame for a later main-loop pass. */
         s_tx_retry_not_before_ms = now_ms + 1u;
         break;
     }
 }
 
-static void prv_schedule_due_pgn(Sched_PGN_Entry_t* entry,
-                                 uint32_t period_ms,
+static uint32_t prv_raw_from_physical(const J1939_Catalog_Signal_t* sig,
+                                      float physical)
+{
+    const J1939_Catalog_Scale_t* scale =
+        &J1939_Catalog_Scales[sig->scale_index];
+    const float raw_f = (physical - scale->offset) / scale->resolution;
+    if (raw_f <= (float)sig->raw_min) {
+        return sig->raw_min;
+    }
+    if (raw_f >= (float)sig->raw_max) {
+        return sig->raw_max;
+    }
+    return (uint32_t)(raw_f + 0.5f);
+}
+
+static void prv_schedule_due_pgn(uint8_t pgn_slot,
+                                 uint16_t period_ms,
                                  uint32_t deadline_ms,
                                  uint32_t now_ms,
                                  J1939_Sched_Tick_Result_t* result)
 {
+    const J1939_Catalog_PGN_t* pgn = prv_catalog_pgn(&s_pgns[pgn_slot]);
     Sched_Tx_Entry_t frame;
+    bool packed_any = false;
     memset(&frame, 0, sizeof(frame));
-    frame.pgn_entry = entry;
+    frame.pgn_slot = pgn_slot;
     frame.deadline_ms = deadline_ms;
     frame.period_ms = period_ms;
+    frame.watch_catalog_index = J1939_CATALOG_INDEX_INVALID;
     J1939_Initialize_Payload(frame.payload);
 
-    for (uint8_t s = 0u; s < s_signal_count; s++) {
-        const J1939_Sched_Signal_t* sig = &s_signals[s];
-        if (sig->def->pgn != entry->timing.pgn) {
+    const uint16_t end = (uint16_t)(pgn->first_signal + pgn->signal_count);
+    for (uint16_t i = pgn->first_signal; i < end; i++) {
+        const J1939_Catalog_Signal_t* sig = &J1939_Catalog_Signals[i];
+        uint32_t raw = 0u;
+        float physical = 0.0f;
+
+        if (J1939_Value_Store_Get_Raw(i, &raw)) {
+            const J1939_Catalog_Scale_t* scale =
+                &J1939_Catalog_Scales[sig->scale_index];
+            physical = ((float)raw * scale->resolution) + scale->offset;
+        } else if (Pattern_Generator_Is_Registered(i)) {
+            physical = Pattern_Generator_Get_Value_Instant(i, now_ms, 0.0f);
+            raw = prv_raw_from_physical(sig, physical);
+        } else {
             continue;
         }
-        const float value = Pattern_Generator_Get_Value_Instant(
-            sig->signal_id, now_ms, sig->def->min_physical);
-        (void)J1939_Encode_Signal_Sized(sig->def, value, frame.payload,
-                                        sizeof(frame.payload));
-        if (sig->signal_id == g_j1939_dbg.watch_signal_id) {
-            frame.watch_def = sig->def;
-            frame.watch_value = value;
+
+        if (J1939_Pack_Raw(frame.payload, sizeof(frame.payload),
+                           sig->start_bit, (uint8_t)sig->bit_length, raw)) {
+            packed_any = true;
+            if (i == g_j1939_dbg.watch_catalog_index) {
+                frame.watch_catalog_index = i;
+                g_j1939_dbg.value = physical;
+            }
         }
     }
 
+    if (!packed_any) {
+        return;
+    }
     if (prv_enqueue(&frame)) {
         result->enqueued++;
     } else {
@@ -318,70 +363,54 @@ static void prv_schedule_due_pgn(Sched_PGN_Entry_t* entry,
 
 void J1939_Sched_Clear(void)
 {
-    s_signal_count = 0u;
     s_pgn_count = 0u;
     s_tx_queue_count = 0u;
     s_tx_retry_not_before_ms = 0u;
     memset(&s_stats, 0, sizeof(s_stats));
 
-    if (g_j1939_dbg.watch_signal_id == J1939_SIGNAL_ID_INVALID) {
-        const J1939_Signal_Definition_t* engine_speed =
-            J1939_Find_Signal_By_PGN_SPN(PGN_EEC1, SPN_ENGINE_SPEED);
-        J1939_Signal_Id_t signal_id = J1939_SIGNAL_ID_INVALID;
-        if (J1939_Get_Signal_Id(engine_speed, &signal_id)) {
-            g_j1939_dbg.watch_signal_id = signal_id;
-        }
+    if (g_j1939_dbg.watch_catalog_index == J1939_CATALOG_INDEX_INVALID) {
+        g_j1939_dbg.watch_catalog_index =
+            J1939_Catalog_Find_Signal_Index(
+                J1939_Catalog_PGNs[J1939_CAT_PGN_IDX_EEC1].pgn, 190u);
     }
 }
 
-bool J1939_Sched_Can_Add_Signal(const J1939_Signal_Definition_t* def)
+bool J1939_Sched_Can_Add_Catalog_Signal(uint16_t catalog_index)
 {
-    J1939_Signal_Id_t signal_id = J1939_SIGNAL_ID_INVALID;
-    if (!J1939_Get_Signal_Id(def, &signal_id)) {
+    if (catalog_index >= J1939_CATALOG_SIGNAL_COUNT) {
         return false;
     }
-    if (prv_find_signal(signal_id) != NULL) {
+    if (!prv_signal_is_active(catalog_index) &&
+        (J1939_Sched_Get_Signal_Count() >= J1939_PROFILE_SIGNAL_CAPACITY)) {
+        return false;
+    }
+
+    const J1939_Catalog_Signal_t* sig = &J1939_Catalog_Signals[catalog_index];
+    const J1939_Catalog_PGN_t* pgn = &J1939_Catalog_PGNs[sig->pgn_index];
+    if (!prv_pgn_is_schedulable(pgn)) {
         return true;
     }
-    if (s_signal_count >= J1939_SCHED_MAX_SIGNALS) {
-        return false;
-    }
-    return (prv_find_pgn(def->pgn) != NULL) ||
+    return (prv_find_pgn(sig->pgn_index) != NULL) ||
            (s_pgn_count < J1939_SCHED_MAX_PGNS);
 }
 
-bool J1939_Sched_Add_Signal(const J1939_Signal_Definition_t* def,
-                            uint32_t timeframe_ms,
-                            float t_start,
-                            float t_dur,
-                            uint32_t now_ms)
+bool J1939_Sched_Add_Catalog_Signal(uint16_t catalog_index,
+                                    uint32_t timeframe_ms,
+                                    uint32_t now_ms)
 {
-    J1939_Signal_Id_t signal_id = J1939_SIGNAL_ID_INVALID;
-    if (!J1939_Get_Signal_Id(def, &signal_id) ||
-        !J1939_Sched_Can_Add_Signal(def)) {
+    (void)timeframe_ms;
+    if (!J1939_Sched_Can_Add_Catalog_Signal(catalog_index)) {
         return false;
     }
 
-    Sched_PGN_Entry_t* entry = prv_add_pgn(def->pgn, now_ms);
-    if (entry == NULL) {
-        return false;
+    const J1939_Catalog_Signal_t* sig = &J1939_Catalog_Signals[catalog_index];
+    const J1939_Catalog_PGN_t* pgn = &J1939_Catalog_PGNs[sig->pgn_index];
+    if (!prv_pgn_is_schedulable(pgn)) {
+        /* On-Request and TP records are configured but never self-transmit
+         * through the short-frame periodic scheduler. */
+        return true;
     }
-
-    J1939_Sched_Signal_t* sig = prv_find_signal(signal_id);
-    if (sig == NULL) {
-        sig = &s_signals[s_signal_count++];
-    }
-    sig->signal_id = signal_id;
-    sig->def = def;
-    sig->timeframe_ms = timeframe_ms;
-    sig->t_start = t_start;
-    sig->t_dur = t_dur;
-
-    if ((timeframe_ms > 0u) &&
-        ((entry->custom_ms == 0u) || (timeframe_ms < entry->custom_ms))) {
-        entry->custom_ms = timeframe_ms;
-    }
-    return true;
+    return prv_add_pgn(sig->pgn_index, now_ms) != NULL;
 }
 
 void J1939_Sched_Set_Mode(J1939_Sched_Mode_t mode)
@@ -399,9 +428,22 @@ void J1939_Sched_Reset_Timers(uint32_t now_ms)
     s_tx_queue_count = 0u;
     s_tx_retry_not_before_ms = now_ms;
     s_stats.queued = 0u;
+
     for (uint8_t i = 0u; i < s_pgn_count; i++) {
-        const uint32_t period_ms = prv_period_ms(&s_pgns[i]);
-        s_pgns[i].next_due_ms = now_ms + period_ms;
+        const uint16_t period_ms = prv_period_ms(&s_pgns[i]);
+        uint8_t rank = 0u;
+        uint8_t peers = 0u;
+        for (uint8_t j = 0u; j < s_pgn_count; j++) {
+            if (prv_period_ms(&s_pgns[j]) == period_ms) {
+                if (j < i) {
+                    rank++;
+                }
+                peers++;
+            }
+        }
+        const uint32_t phase =
+            (((uint32_t)(rank + 1u) * period_ms) + peers - 1u) / peers;
+        s_pgns[i].next_due_ms = now_ms + phase;
     }
 }
 
@@ -412,7 +454,7 @@ void J1939_Sched_Tick(uint32_t now_ms, J1939_Sched_Tick_Result_t* result)
 
     for (uint8_t i = 0u; i < s_pgn_count; i++) {
         Sched_PGN_Entry_t* entry = &s_pgns[i];
-        const uint32_t period_ms = prv_period_ms(entry);
+        const uint16_t period_ms = prv_period_ms(entry);
         if ((period_ms == 0u) ||
             !prv_time_reached(now_ms, entry->next_due_ms)) {
             continue;
@@ -426,7 +468,7 @@ void J1939_Sched_Tick(uint32_t now_ms, J1939_Sched_Tick_Result_t* result)
             s_stats.deadline_missed += periods_late;
         }
         entry->next_due_ms += (periods_late + 1u) * period_ms;
-        prv_schedule_due_pgn(entry, period_ms, deadline_ms, now_ms, &local);
+        prv_schedule_due_pgn(i, period_ms, deadline_ms, now_ms, &local);
     }
 
     prv_drain_queue(now_ms, &local);
@@ -435,14 +477,33 @@ void J1939_Sched_Tick(uint32_t now_ms, J1939_Sched_Tick_Result_t* result)
     }
 }
 
-uint8_t J1939_Sched_Get_Signal_Count(void)
+uint16_t J1939_Sched_Get_Signal_Count(void)
 {
-    return s_signal_count;
+    uint16_t count = 0u;
+    for (uint16_t i = 0u; i < J1939_CATALOG_SIGNAL_COUNT; i++) {
+        if (prv_signal_is_active(i)) {
+            count++;
+        }
+    }
+    return count;
 }
 
-const J1939_Sched_Signal_t* J1939_Sched_Get_Signal(uint8_t index)
+bool J1939_Sched_Get_Active_Catalog_Index(uint16_t ordinal,
+                                          uint16_t* out_catalog_index)
 {
-    return (index < s_signal_count) ? &s_signals[index] : NULL;
+    if (out_catalog_index == NULL) {
+        return false;
+    }
+    for (uint16_t i = 0u; i < J1939_CATALOG_SIGNAL_COUNT; i++) {
+        if (prv_signal_is_active(i)) {
+            if (ordinal == 0u) {
+                *out_catalog_index = i;
+                return true;
+            }
+            ordinal--;
+        }
+    }
+    return false;
 }
 
 uint8_t J1939_Sched_Get_PGN_Count(void)
