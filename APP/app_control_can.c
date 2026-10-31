@@ -271,6 +271,12 @@ static App_Control_Status_t prv_txn_status(
             return APP_CONTROL_STATUS_BLOB_INCOMPLETE;
         case APP_CONFIG_TXN_BAD_ARGUMENT:
             return APP_CONTROL_STATUS_BAD_ARGUMENT;
+        case APP_CONFIG_TXN_UNKNOWN_PROFILE:
+            return APP_CONTROL_STATUS_UNKNOWN_PROFILE;
+        case APP_CONFIG_TXN_PROFILE_KEY_NOT_ALLOWED:
+            return APP_CONTROL_STATUS_PROFILE_KEY_NOT_ALLOWED;
+        case APP_CONFIG_TXN_PROFILE_MISMATCH:
+            return APP_CONTROL_STATUS_PROFILE_MISMATCH;
         case APP_CONFIG_TXN_INVALID_STATE:
         case APP_CONFIG_TXN_NOT_OPEN:
         default:
@@ -425,6 +431,28 @@ static void prv_handle_get_status(uint8_t sequence,
                     ((uint32_t)J1939_WAVEFORM_POOL_CAPACITY << 16) |
                     ((uint32_t)J1939_VALUE_STORE_BLOB_MAX_BYTES << 24);
             break;
+        case APP_CONTROL_STATUS_PAGE_PROFILE: {
+            const uint8_t profile_id = App_Gen_Get_Active_Profile_Id();
+            const J1939_Customer_Profile_t* profile =
+                J1939_Customer_Profile_Find(profile_id);
+            if (profile != NULL) {
+                detail = profile->flags;
+                if (profile->unresolved_mode_count != 0u) {
+                    detail |= J1939_PROFILE_FLAG_UNRESOLVED_MODE;
+                }
+                value = (uint32_t)profile->profile_id |
+                        ((uint32_t)profile->signal_count << 8) |
+                        ((uint32_t)profile->pgn_count << 16) |
+                        ((uint32_t)profile->baseline_load_500k_decipct << 24);
+            } else {
+                detail = 0u;
+                value = (uint32_t)J1939_PROFILE_ID_CUSTOM |
+                        ((uint32_t)App_Gen_Get_Active_Signal_Count() << 8) |
+                        ((uint32_t)App_Gen_Get_Active_PGN_Count() << 16) |
+                        (0xFFu << 24);
+            }
+            break;
+        }
         default:
             break;
     }
@@ -444,7 +472,14 @@ static void prv_handle_begin_config(uint8_t sequence,
 {
     const uint32_t catalog_crc = prv_read_u32_le(&data[2]);
     const uint16_t expected_count = data[6];
-    const uint8_t expected_blob_count = data[7];
+    const uint8_t profile_blob = data[7];
+    const uint8_t expected_blob_count =
+        profile_blob & APP_CONTROL_BEGIN_BLOB_MASK;
+    const uint8_t selector =
+        profile_blob >> APP_CONTROL_BEGIN_PROFILE_SHIFT;
+    const uint8_t profile_id =
+        (selector == APP_CONTROL_BEGIN_PROFILE_SELECTOR_CUSTOM)
+            ? J1939_PROFILE_ID_CUSTOM : (uint8_t)(selector - 1u);
     if (catalog_crc != J1939_CATALOG_CRC32) {
         prv_build_response(response, APP_CONTROL_OPCODE_BEGIN_CONFIG, sequence,
                            APP_CONTROL_STATUS_CATALOG_MISMATCH, 0u,
@@ -453,7 +488,8 @@ static void prv_handle_begin_config(uint8_t sequence,
     }
 
     const App_Control_Status_t status = prv_txn_status(
-        App_Gen_Begin_Config(expected_count, expected_blob_count));
+        App_Gen_Begin_Profile_Config(expected_count, expected_blob_count,
+                                     profile_id));
     prv_build_response(response, APP_CONTROL_OPCODE_BEGIN_CONFIG, sequence,
                        status, (uint8_t)expected_count,
                        J1939_CATALOG_CRC32);

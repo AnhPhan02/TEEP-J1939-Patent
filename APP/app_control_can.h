@@ -33,8 +33,9 @@ extern "C" {
 #define APP_CONTROL_OPCODE_SET_GLOBAL_PERCENT 0x16u
 
 /* Request layouts (all little-endian, all frames exactly 8 bytes):
- * BEGIN_CONFIG  [op, seq, catalog_crc32, expected_scalar_u8, expected_blob_u8]
- *               (expected_blob_u8 was flags=0 in 2.0, so 2.0 clients still work)
+ * BEGIN_CONFIG  [op, seq, catalog_crc32, expected_scalar_u8, profile_blob_u8]
+ *               profile_blob bit 0 = expected blob count (0..1); bits 1..7
+ *               are 0 for custom/legacy or generated profile_id + 1.
  * SET_SIGNAL_RAW[op, seq, signal_key_u16, raw_value_u32]
  * WRITE_BLOB    [op, seq, signal_key_u8, total_length_u8, offset_u8, data[3]]
  *               payload bytes = min(3, total_length - offset); unused data
@@ -56,10 +57,13 @@ extern "C" {
  *                             (algorithm in j1939_value_store.h)
  *            page 3 limits:   value = max signals u8, max PGNs u8, waveform
  *                             pool u8, max blob bytes u8; detail = features
- * Every page carries the APP_CONTROL_RUNTIME_* flags in detail except page 3. */
+ *            page 4 profile:  value bytes = profile ID, required/active signal
+ *                             count, PGN count, baseline load at 500k in 0.1%;
+ *                             detail = J1939_PROFILE_FLAG_* (custom load=0xFF)
+ * Every page carries APP_CONTROL_RUNTIME_* flags in detail except pages 3/4. */
 
 #define APP_CONTROL_PROTOCOL_MAJOR       2u
-#define APP_CONTROL_PROTOCOL_MINOR       1u
+#define APP_CONTROL_PROTOCOL_MINOR       2u
 #define APP_CONTROL_SCHEMA_VERSION       1u
 
 #define APP_CONTROL_CAPABILITY_STOP          (1u << 0)
@@ -90,7 +94,12 @@ extern "C" {
 #define APP_CONTROL_STATUS_PAGE_RUNTIME               1u
 #define APP_CONTROL_STATUS_PAGE_CONFIG                2u
 #define APP_CONTROL_STATUS_PAGE_LIMITS                3u
-#define APP_CONTROL_STATUS_PAGE_LAST                  APP_CONTROL_STATUS_PAGE_LIMITS
+#define APP_CONTROL_STATUS_PAGE_PROFILE               4u
+#define APP_CONTROL_STATUS_PAGE_LAST                  APP_CONTROL_STATUS_PAGE_PROFILE
+
+#define APP_CONTROL_BEGIN_BLOB_MASK                   0x01u
+#define APP_CONTROL_BEGIN_PROFILE_SHIFT               1u
+#define APP_CONTROL_BEGIN_PROFILE_SELECTOR_CUSTOM     0u
 
 /* GET_STATUS page 3 detail: protocol features beyond the page-0 mask. A clear
  * bit means the firmware does not provide the feature yet. */
@@ -101,10 +110,12 @@ extern "C" {
 #define APP_CONTROL_FEATURE_TRANSPORT_TP      (1u << 4)
 #define APP_CONTROL_FEATURE_PERSISTENCE       (1u << 5)
 #define APP_CONTROL_FEATURE_REQUEST_PGN       (1u << 6)
+#define APP_CONTROL_FEATURE_CUSTOMER_PROFILES (1u << 7)
 #define APP_CONTROL_FEATURES                  \
     (APP_CONTROL_FEATURE_WRITE_BLOB |         \
      APP_CONTROL_FEATURE_GLOBAL_PERCENT |     \
-     APP_CONTROL_FEATURE_CONFIG_CRC)
+     APP_CONTROL_FEATURE_CONFIG_CRC |         \
+     APP_CONTROL_FEATURE_CUSTOMER_PROFILES)
 
 /* GET_STATUS response: detail = APP_CONTROL_RUNTIME_* flags. The LE value32
  * bytes are protocol major, protocol minor, schema and capability mask. */
@@ -130,7 +141,10 @@ typedef enum {
     APP_CONTROL_STATUS_RESOURCE_FULL = 12,
     APP_CONTROL_STATUS_CATALOG_MISMATCH = 13,
     APP_CONTROL_STATUS_INTERNAL_ERROR = 14,
-    APP_CONTROL_STATUS_BLOB_INCOMPLETE = 15
+    APP_CONTROL_STATUS_BLOB_INCOMPLETE = 15,
+    APP_CONTROL_STATUS_UNKNOWN_PROFILE = 16,
+    APP_CONTROL_STATUS_PROFILE_KEY_NOT_ALLOWED = 17,
+    APP_CONTROL_STATUS_PROFILE_MISMATCH = 18
 } App_Control_Status_t;
 
 typedef struct {

@@ -17,6 +17,7 @@ extern "C" {
 #include <stdbool.h>
 #include "j1939_pattern_generator.h"
 #include "j1939_tx_scheduler.h"
+#include "j1939_customer_profiles.h"
 
 typedef struct {
     uint32_t       pgn;             /* 0 = SPN-only; accepted only when unique */
@@ -64,7 +65,10 @@ typedef enum {
     APP_CONFIG_TXN_COUNT_MISMATCH,
     APP_CONFIG_TXN_INTERNAL_ERROR,
     APP_CONFIG_TXN_BLOB_INCOMPLETE,     /* commit: blob bytes missing */
-    APP_CONFIG_TXN_BAD_ARGUMENT         /* malformed chunk/padding */
+    APP_CONFIG_TXN_BAD_ARGUMENT,        /* malformed chunk/padding */
+    APP_CONFIG_TXN_UNKNOWN_PROFILE,
+    APP_CONFIG_TXN_PROFILE_KEY_NOT_ALLOWED,
+    APP_CONFIG_TXN_PROFILE_MISMATCH
 } App_Config_Transaction_Status_t;
 
 /* Maximum blob payload bytes carried by one WRITE_BLOB chunk. */
@@ -86,6 +90,12 @@ App_Set_Const_Status_t App_Gen_Set_Constant_Raw(uint16_t signal_key,
 App_Config_Transaction_Status_t App_Gen_Begin_Config(
     uint16_t expected_scalar_count,
     uint8_t expected_blob_count);
+/* Profile-aware Phase 5 entry point. CUSTOM keeps the Phase 4 engineer-mode
+ * behavior; a generated profile ID enforces its exact key mask and counts. */
+App_Config_Transaction_Status_t App_Gen_Begin_Profile_Config(
+    uint16_t expected_scalar_count,
+    uint8_t expected_blob_count,
+    uint8_t profile_id);
 App_Config_Transaction_Status_t App_Gen_Stage_Constant_Raw(
     uint16_t signal_key,
     uint32_t raw_value,
@@ -121,6 +131,7 @@ App_Config_Transaction_Status_t App_Gen_Set_Global_Percent(
 uint32_t App_Gen_Global_Percent_To_Raw(uint32_t raw_min, uint32_t raw_max,
                                        uint16_t percentage_bp);
 uint32_t App_Gen_Get_Config_Crc(void);
+uint8_t App_Gen_Get_Active_Profile_Id(void);
 
 bool App_Gen_Has_Configured_Signals(void);
 bool App_Gen_Is_Signal_Configured(uint16_t signal_key);

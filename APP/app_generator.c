@@ -42,6 +42,8 @@ static uint8_t  s_config_expected_blob_count;
 static uint8_t  s_config_blob_count;        /* blob records */
 static uint8_t  s_config_staged_pgn_count;
 static uint8_t  s_config_schedulable_pgn_count;
+static uint8_t  s_config_profile_id;
+static uint8_t  s_active_profile_id;
 
 /* The value store owns one blob slot per bank. */
 #define APP_CONFIG_MAX_BLOB_RECORDS  1u
@@ -114,6 +116,59 @@ static App_Config_Transaction_Status_t prv_config_ready(void)
     return APP_CONFIG_TXN_OK;
 }
 
+static void prv_profile_record_counts(const J1939_Customer_Profile_t* profile,
+                                      uint16_t* scalar_count,
+                                      uint8_t* blob_count)
+{
+    uint16_t scalars = 0u;
+    uint8_t blobs = 0u;
+    for (uint16_t i = 0u; i < J1939_CATALOG_SIGNAL_COUNT; i++) {
+        const uint16_t key = J1939_Catalog_Signals[i].signal_key;
+        if (!J1939_Customer_Profile_Has_Key(profile, key)) {
+            continue;
+        }
+        if ((J1939_Catalog_Signals[i].flags & J1939_CAT_SIG_BLOB) != 0u) {
+            blobs++;
+        } else {
+            scalars++;
+        }
+    }
+    if (scalar_count != NULL) {
+        *scalar_count = scalars;
+    }
+    if (blob_count != NULL) {
+        *blob_count = blobs;
+    }
+}
+
+static bool prv_config_profile_allows(uint16_t index)
+{
+    if (s_config_profile_id == J1939_PROFILE_ID_CUSTOM) {
+        return true;
+    }
+    const J1939_Customer_Profile_t* profile =
+        J1939_Customer_Profile_Find(s_config_profile_id);
+    return (profile != NULL) && J1939_Customer_Profile_Has_Key(
+        profile, J1939_Catalog_Signals[index].signal_key);
+}
+
+static bool prv_config_matches_profile(
+    const J1939_Customer_Profile_t* profile)
+{
+    if (profile == NULL) {
+        return false;
+    }
+    for (uint16_t i = 0u; i < J1939_CATALOG_SIGNAL_COUNT; i++) {
+        const bool staged = prv_mask_test(s_config_signal_mask, i);
+        const bool required = J1939_Customer_Profile_Has_Key(
+            profile, J1939_Catalog_Signals[i].signal_key);
+        if (staged != required) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* Read-only capacity admission for a record about to be staged. */
 static App_Config_Transaction_Status_t prv_config_admit(uint16_t index)
 {
@@ -159,6 +214,7 @@ static void prv_config_reset_counters(void)
     s_config_blob_count = 0u;
     s_config_staged_pgn_count = 0u;
     s_config_schedulable_pgn_count = 0u;
+    s_config_profile_id = J1939_PROFILE_ID_CUSTOM;
 }
 
 static uint16_t prv_find_unique_catalog_index(uint32_t spn,
@@ -255,6 +311,7 @@ static App_Set_Const_Status_t prv_set_constant(uint16_t index,
 
     (void)J1939_Sched_Add_Catalog_Signal(index, timeframe_ms, hal_time_ms());
     (void)Pattern_Generator_Unregister(index);
+    s_active_profile_id = J1939_PROFILE_ID_CUSTOM;
     return APP_SET_CONST_OK;
 }
 
@@ -416,6 +473,7 @@ void App_Gen_Init(uint32_t baud_kbps)
     s_total_frames_sent = 0u;
     s_baud_kbps = baud_kbps;
     s_config_state = APP_CONFIG_STATE_IDLE;
+    s_active_profile_id = J1939_PROFILE_ID_CUSTOM;
     prv_config_reset_counters();
 }
 
@@ -551,6 +609,7 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
     if (J1939_Value_Store_Is_Active(index)) {
         (void)prv_store_update(J1939_Catalog_Signals[index].signal_key, false, 0u);
     }
+    s_active_profile_id = J1939_PROFILE_ID_CUSTOM;
     return APP_CFG_OK;
 }
 
@@ -580,11 +639,39 @@ App_Config_Transaction_Status_t App_Gen_Begin_Config(
     uint16_t expected_scalar_count,
     uint8_t expected_blob_count)
 {
+    return App_Gen_Begin_Profile_Config(expected_scalar_count,
+                                        expected_blob_count,
+                                        J1939_PROFILE_ID_CUSTOM);
+}
+
+App_Config_Transaction_Status_t App_Gen_Begin_Profile_Config(
+    uint16_t expected_scalar_count,
+    uint8_t expected_blob_count,
+    uint8_t profile_id)
+{
     if (s_is_running) {
         return APP_CONFIG_TXN_INVALID_STATE;
     }
     if (s_config_state != APP_CONFIG_STATE_IDLE) {
         return APP_CONFIG_TXN_ALREADY_OPEN;
+    }
+    const J1939_Customer_Profile_t* profile = NULL;
+    if (profile_id != J1939_PROFILE_ID_CUSTOM) {
+        profile = J1939_Customer_Profile_Find(profile_id);
+        if (profile == NULL) {
+            return APP_CONFIG_TXN_UNKNOWN_PROFILE;
+        }
+        uint16_t required_scalars = 0u;
+        uint8_t required_blobs = 0u;
+        prv_profile_record_counts(profile, &required_scalars, &required_blobs);
+        if ((expected_scalar_count != required_scalars) ||
+            (expected_blob_count != required_blobs)) {
+            return APP_CONFIG_TXN_PROFILE_MISMATCH;
+        }
+        if ((profile->signal_count > J1939_PROFILE_SIGNAL_CAPACITY) ||
+            (profile->pgn_count > J1939_PROFILE_PGN_CAPACITY)) {
+            return APP_CONFIG_TXN_RESOURCE_FULL;
+        }
     }
     if ((expected_blob_count > APP_CONFIG_MAX_BLOB_RECORDS) ||
         ((uint16_t)(expected_scalar_count + expected_blob_count) >
@@ -599,6 +686,7 @@ App_Config_Transaction_Status_t App_Gen_Begin_Config(
     prv_config_reset_counters();
     s_config_expected_count = expected_scalar_count;
     s_config_expected_blob_count = expected_blob_count;
+    s_config_profile_id = profile_id;
     s_config_state = APP_CONFIG_STATE_OPEN;
     return APP_CONFIG_TXN_OK;
 }
@@ -619,6 +707,9 @@ App_Config_Transaction_Status_t App_Gen_Stage_Constant_Raw(
     const uint16_t index = J1939_Catalog_Index_From_Key(signal_key);
     if (index == J1939_CATALOG_INDEX_INVALID) {
         return prv_config_reject(APP_CONFIG_TXN_UNKNOWN_KEY);
+    }
+    if (!prv_config_profile_allows(index)) {
+        return prv_config_reject(APP_CONFIG_TXN_PROFILE_KEY_NOT_ALLOWED);
     }
     if (!prv_is_scalar(index)) {
         return prv_config_reject(APP_CONFIG_TXN_UNSUPPORTED_SIGNAL);
@@ -671,6 +762,9 @@ App_Config_Transaction_Status_t App_Gen_Stage_Blob_Chunk(
     const uint16_t index = J1939_Catalog_Index_From_Key(signal_key);
     if (index == J1939_CATALOG_INDEX_INVALID) {
         return prv_config_reject(APP_CONFIG_TXN_UNKNOWN_KEY);
+    }
+    if (!prv_config_profile_allows(index)) {
+        return prv_config_reject(APP_CONFIG_TXN_PROFILE_KEY_NOT_ALLOWED);
     }
     if ((J1939_Catalog_Signals[index].flags & J1939_CAT_SIG_BLOB) == 0u) {
         return prv_config_reject(APP_CONFIG_TXN_UNSUPPORTED_SIGNAL);
@@ -730,6 +824,15 @@ App_Config_Transaction_Status_t App_Gen_Commit_Config(
         s_config_state = APP_CONFIG_STATE_IDLE;
         return APP_CONFIG_TXN_COUNT_MISMATCH;
     }
+    if (s_config_profile_id != J1939_PROFILE_ID_CUSTOM) {
+        const J1939_Customer_Profile_t* profile =
+            J1939_Customer_Profile_Find(s_config_profile_id);
+        if (!prv_config_matches_profile(profile)) {
+            J1939_Value_Store_Abort();
+            s_config_state = APP_CONFIG_STATE_IDLE;
+            return APP_CONFIG_TXN_PROFILE_MISMATCH;
+        }
+    }
 
     uint16_t generation = 0u;
     const J1939_Value_Store_Status_t committed =
@@ -757,6 +860,7 @@ App_Config_Transaction_Status_t App_Gen_Commit_Config(
         J1939_Sched_Clear();
         return APP_CONFIG_TXN_INTERNAL_ERROR;
     }
+    s_active_profile_id = s_config_profile_id;
 
     if (out_generation != NULL) {
         *out_generation = generation;
@@ -872,6 +976,11 @@ uint32_t App_Gen_Get_Config_Crc(void)
     return J1939_Value_Store_Get_Config_Crc();
 }
 
+uint8_t App_Gen_Get_Active_Profile_Id(void)
+{
+    return s_active_profile_id;
+}
+
 bool App_Gen_Config_Transaction_Open(void)
 {
     return s_config_state != APP_CONFIG_STATE_IDLE;
@@ -960,6 +1069,7 @@ void App_Gen_Load_Defaults(void)
                     PATTERN_RAMP, 0.0f, 100.0f, 10.0f);
     prv_add_default(J1939_KEY_CCVS1_SPN84,
                     PATTERN_RAMP, 0.0f, 120.0f, 15.0f);
+    s_active_profile_id = J1939_PROFILE_ID_CUSTOM;
 }
 
 void App_Gen_Clear(void)
@@ -969,6 +1079,7 @@ void App_Gen_Clear(void)
     J1939_Sched_Clear();
     prv_store_clear();
     s_is_running = false;
+    s_active_profile_id = J1939_PROFILE_ID_CUSTOM;
 }
 
 void App_Gen_Start(uint32_t duration_sec, J1939_Sched_Mode_t mode)
