@@ -6,6 +6,9 @@
  */
 
 #include "j1939_pattern_generator.h"
+
+#if ENABLE_WAVEFORM  /* whole engine compiled out in constant-only builds */
+
 #include <string.h>
 #include <math.h>
 
@@ -318,3 +321,5 @@ bool Pattern_Generator_Get_Catalog_Index(uint8_t ordinal,
     *out_catalog_index = g_patterns[ordinal].config.catalog_index;
     return true;
 }
+
+#endif /* ENABLE_WAVEFORM */

@@ -50,7 +50,8 @@ void App_Boot_Restore(bool suppress_autostart, bool use_defaults_when_empty)
             s_info.result = APP_BOOT_DEFAULTS;
             s_info.autostart = suppress_autostart ? APP_AUTOSTART_SUPPRESSED
                                                   : APP_AUTOSTART_PENDING;
-            s_autostart_mode = J1939_SCHED_MODE_SMOOTH;
+            s_autostart_mode = ENABLE_WAVEFORM ? J1939_SCHED_MODE_SMOOTH
+                                               : J1939_SCHED_MODE_SAE;
         }
         return;
     }

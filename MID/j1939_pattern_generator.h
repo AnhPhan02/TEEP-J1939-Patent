@@ -81,6 +81,7 @@ typedef struct {
 /* =============================================================================
  * PUBLIC API
  * ============================================================================= */
+#if ENABLE_WAVEFORM
 
 /* Initialize the generator system */
 void Pattern_Generator_Init(uint32_t sim_start_time_ms);
@@ -122,6 +123,38 @@ uint8_t Pattern_Generator_Get_Count(void);
 
 /* Check if any pattern is currently active */
 bool Pattern_Generator_Is_Running(void);
+
+#else /* !ENABLE_WAVEFORM: constant-only build, empty waveform pool */
+
+static inline void Pattern_Generator_Init(uint32_t sim_start_time_ms)
+{ (void)sim_start_time_ms; }
+static inline bool Pattern_Generator_Register(const Pattern_Config_t* config)
+{ (void)config; return false; }
+static inline bool Pattern_Generator_Can_Register(uint16_t catalog_index)
+{ (void)catalog_index; return false; }
+static inline bool Pattern_Generator_Unregister(uint16_t catalog_index)
+{ (void)catalog_index; return false; }
+static inline bool Pattern_Generator_Is_Registered(uint16_t catalog_index)
+{ (void)catalog_index; return false; }
+static inline bool Pattern_Generator_Get_Catalog_Index(uint8_t ordinal,
+                                                       uint16_t* out_catalog_index)
+{ (void)ordinal; (void)out_catalog_index; return false; }
+static inline void Pattern_Generator_Update(uint32_t current_time_ms)
+{ (void)current_time_ms; }
+static inline float Pattern_Generator_Get_Value(uint16_t catalog_index,
+                                                float default_value)
+{ (void)catalog_index; return default_value; }
+static inline float Pattern_Generator_Get_Value_Instant(uint16_t catalog_index,
+                                                        uint32_t current_time_ms,
+                                                        float default_value)
+{ (void)catalog_index; (void)current_time_ms; return default_value; }
+static inline void Pattern_Generator_Reset(uint32_t current_time_ms)
+{ (void)current_time_ms; }
+static inline void Pattern_Generator_Stop(void) {}
+static inline uint8_t Pattern_Generator_Get_Count(void) { return 0u; }
+static inline bool Pattern_Generator_Is_Running(void) { return false; }
+
+#endif /* ENABLE_WAVEFORM */
 
 #ifdef __cplusplus
 }

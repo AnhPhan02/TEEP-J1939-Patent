@@ -25,6 +25,7 @@
 #   make                                      179-scalar production UI build
 #   make ENABLE_179_SCALAR=0                  legacy 40-SPN build
 #   make APP_CLI_ENABLE=1                     diagnostic CLI build
+#   make ENABLE_WAVEFORM=1                    legacy SIG waveform engine
 #   make APP_BOOT_AUTOSTART_DEFAULTS=1        standalone demonstration build
 #   make ENABLE_100_SPNS=1                    experimental capacity build
 #   make ENABLE_179_SCALAR=1                  179-scalar full scheduler build
@@ -32,12 +33,16 @@ APP_CLI_ENABLE              ?= 0
 APP_BOOT_AUTOSTART_DEFAULTS ?= 0
 ENABLE_100_SPNS             ?= 0
 ENABLE_179_SCALAR           ?= 1
+ENABLE_WAVEFORM             ?= 0
 
 ifneq ($(filter $(ENABLE_100_SPNS),0 1),$(ENABLE_100_SPNS))
 $(error ENABLE_100_SPNS must be 0 or 1)
 endif
 ifneq ($(filter $(ENABLE_179_SCALAR),0 1),$(ENABLE_179_SCALAR))
 $(error ENABLE_179_SCALAR must be 0 or 1)
+endif
+ifneq ($(filter $(ENABLE_WAVEFORM),0 1),$(ENABLE_WAVEFORM))
+$(error ENABLE_WAVEFORM must be 0 or 1)
 endif
 ifeq ($(ENABLE_100_SPNS)$(ENABLE_179_SCALAR),11)
 $(error Select at most one of ENABLE_100_SPNS and ENABLE_179_SCALAR)
@@ -84,6 +89,7 @@ CFLAGS      := $(CPU) -std=gnu11 -Os -g3 -Wall -Wextra \
                -DAPP_BOOT_AUTOSTART_DEFAULTS=$(APP_BOOT_AUTOSTART_DEFAULTS) \
                -DENABLE_100_SPNS=$(ENABLE_100_SPNS) \
                -DENABLE_179_SCALAR=$(ENABLE_179_SCALAR) \
+               -DENABLE_WAVEFORM=$(ENABLE_WAVEFORM) \
                -DPATTERN_GEN_MAX_SIGNALS=$(PATTERN_GEN_MAX_SIGNALS) \
                -DJ1939_SCHED_MAX_PGNS=$(J1939_SCHED_MAX_PGNS)
 ASFLAGS     := $(CPU) -x assembler-with-cpp

@@ -430,6 +430,36 @@ static void prv_print_telemetry(void)
     hal_console_write_line(NULL);
 }
 
+/* Physical -> raw for a constant, clamped to the catalog raw range. */
+static uint32_t prv_raw_from_physical(uint16_t index, float physical)
+{
+    const J1939_Catalog_Signal_t* cat = &J1939_Catalog_Signals[index];
+    const J1939_Catalog_Scale_t* scale = &J1939_Catalog_Scales[cat->scale_index];
+    const float raw_f = (physical - scale->offset) / scale->resolution;
+    uint32_t raw = cat->raw_min;
+    if (raw_f >= (float)cat->raw_max) {
+        raw = cat->raw_max;
+    } else if (raw_f > (float)cat->raw_min) {
+        raw = (uint32_t)(raw_f + 0.5f);
+    }
+    return raw;
+}
+
+#if !ENABLE_WAVEFORM
+/* =============================================================================
+ * PRIVATE: Register one default constant (constant-only build)
+ * ============================================================================= */
+static void prv_add_default_constant(uint16_t signal_key, float physical)
+{
+    const uint16_t catalog_index = J1939_Catalog_Index_From_Key(signal_key);
+    if (catalog_index == J1939_CATALOG_INDEX_INVALID) {
+        return;
+    }
+    (void)prv_set_constant(catalog_index,
+                           prv_raw_from_physical(catalog_index, physical),
+                           0u, 0.0f, 0.0f);
+}
+#else
 /* =============================================================================
  * PRIVATE: Register one default waveform
  * ============================================================================= */
@@ -457,6 +487,7 @@ static void prv_add_default(uint16_t signal_key, Pattern_Type_t type,
                                               hal_time_ms());
     }
 }
+#endif /* ENABLE_WAVEFORM */
 
 /* =============================================================================
  * PUBLIC
@@ -529,15 +560,7 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
             (req->param1 >= req->min_value && req->param1 <= req->max_value)
                 ? req->param1
                 : (req->min_value + req->max_value) * 0.5f;
-        const J1939_Catalog_Signal_t* cat = &J1939_Catalog_Signals[index];
-        const J1939_Catalog_Scale_t* scale = &J1939_Catalog_Scales[cat->scale_index];
-        const float raw_f = (physical - scale->offset) / scale->resolution;
-        uint32_t raw = cat->raw_min;
-        if (raw_f >= (float)cat->raw_max) {
-            raw = cat->raw_max;
-        } else if (raw_f > (float)cat->raw_min) {
-            raw = (uint32_t)(raw_f + 0.5f);
-        }
+        const uint32_t raw = prv_raw_from_physical(index, physical);
 
         switch (prv_set_constant(index, raw, req->timeframe_ms,
                                  req->t_start, req->t_dur)) {
@@ -552,6 +575,9 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
         }
     }
 
+#if !ENABLE_WAVEFORM
+    return APP_CFG_UNSUPPORTED_SIGNAL;    /* constant-only build */
+#else
     if (!Pattern_Generator_Can_Register(index) ||
         !J1939_Sched_Can_Add_Catalog_Signal(index)) {
         return APP_CFG_TABLE_FULL;
@@ -613,6 +639,7 @@ App_Config_Status_t App_Gen_Config_Signal(const App_Signal_Request_t* req,
     }
     s_active_profile_id = J1939_PROFILE_ID_CUSTOM;
     return APP_CFG_OK;
+#endif /* ENABLE_WAVEFORM */
 }
 
 App_Set_Const_Status_t App_Gen_Set_Constant_Raw(uint16_t signal_key,
@@ -1065,12 +1092,19 @@ void App_Gen_Load_Defaults(void)
     J1939_Sched_Clear();
     prv_store_clear();
 
+#if ENABLE_WAVEFORM
     prv_add_default(J1939_KEY_EEC1_SPN190,
                     PATTERN_SINE, 800.0f, 3500.0f, 8.0f);
     prv_add_default(J1939_KEY_EEC2_SPN91,
                     PATTERN_RAMP, 0.0f, 100.0f, 10.0f);
     prv_add_default(J1939_KEY_CCVS1_SPN84,
                     PATTERN_RAMP, 0.0f, 120.0f, 15.0f);
+#else
+    /* Same three demo signals as fixed constants (rpm, %, km/h). */
+    prv_add_default_constant(J1939_KEY_EEC1_SPN190, 1500.0f);
+    prv_add_default_constant(J1939_KEY_EEC2_SPN91, 50.0f);
+    prv_add_default_constant(J1939_KEY_CCVS1_SPN84, 60.0f);
+#endif
     s_active_profile_id = J1939_PROFILE_ID_CUSTOM;
 }
 

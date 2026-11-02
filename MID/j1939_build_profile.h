@@ -18,12 +18,23 @@
 #define ENABLE_179_SCALAR  1
 #endif
 
+/* 0: constant-only generator. The waveform pattern engine is compiled out,
+ * the pool capacity is 0 (GET_STATUS page 3) and non-constant requests are
+ * rejected as unsupported. 1: legacy SIG waveforms (sine/ramp/...). */
+#ifndef ENABLE_WAVEFORM
+#define ENABLE_WAVEFORM  0
+#endif
+
 #if ((ENABLE_100_SPNS != 0) && (ENABLE_100_SPNS != 1))
 #error "ENABLE_100_SPNS must be 0 or 1"
 #endif
 
 #if ((ENABLE_179_SCALAR != 0) && (ENABLE_179_SCALAR != 1))
 #error "ENABLE_179_SCALAR must be 0 or 1"
+#endif
+
+#if ((ENABLE_WAVEFORM != 0) && (ENABLE_WAVEFORM != 1))
+#error "ENABLE_WAVEFORM must be 0 or 1"
 #endif
 
 #if ENABLE_100_SPNS && ENABLE_179_SCALAR
@@ -33,7 +44,11 @@
 /* Constant/raw values live in the catalog-sized value store (all 179 records
  * in every profile). Only waveform signals use the dynamic pattern pool, whose
  * size is independent of the signal capacity (Phase 0 D-004). */
+#if ENABLE_WAVEFORM
 #define J1939_PROFILE_WAVEFORM_CAPACITY        40u
+#else
+#define J1939_PROFILE_WAVEFORM_CAPACITY         0u
+#endif
 
 #if ENABLE_179_SCALAR
 /* Phase 3 full catalog scheduler profile: every scalar record is admissible. */
