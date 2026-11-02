@@ -1,7 +1,7 @@
 # =============================================================================
 # J1939 generator firmware - STM32F103C8 (Cortex-M3), bare-metal, arm-none-eabi-gcc
 #
-#   make            build validated build/j1939_generator.{elf,hex,bin}
+#   make            build the 179-scalar firmware under build/profile-179/
 #   make ENABLE_100_SPNS=1
 #                   build experimental 100-slot capacity profile under
 #                   build/profile-100/
@@ -22,7 +22,8 @@
 # Separate target/build names prevent objects from the validated 40-SPN build
 # being reused by the experimental capacity build.
 # Examples:
-#   make                                      production UI build
+#   make                                      179-scalar production UI build
+#   make ENABLE_179_SCALAR=0                  legacy 40-SPN build
 #   make APP_CLI_ENABLE=1                     diagnostic CLI build
 #   make APP_BOOT_AUTOSTART_DEFAULTS=1        standalone demonstration build
 #   make ENABLE_100_SPNS=1                    experimental capacity build
@@ -30,7 +31,7 @@
 APP_CLI_ENABLE              ?= 0
 APP_BOOT_AUTOSTART_DEFAULTS ?= 0
 ENABLE_100_SPNS             ?= 0
-ENABLE_179_SCALAR           ?= 0
+ENABLE_179_SCALAR           ?= 1
 
 ifneq ($(filter $(ENABLE_100_SPNS),0 1),$(ENABLE_100_SPNS))
 $(error ENABLE_100_SPNS must be 0 or 1)

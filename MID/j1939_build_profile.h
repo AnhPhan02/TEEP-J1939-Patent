@@ -15,7 +15,7 @@
 #endif
 
 #ifndef ENABLE_179_SCALAR
-#define ENABLE_179_SCALAR  0
+#define ENABLE_179_SCALAR  1
 #endif
 
 #if ((ENABLE_100_SPNS != 0) && (ENABLE_100_SPNS != 1))
