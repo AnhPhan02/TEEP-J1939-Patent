@@ -109,6 +109,16 @@ App_Config_Transaction_Status_t App_Gen_Stage_Blob_Chunk(
     uint8_t offset,
     const uint8_t chunk[APP_BLOB_CHUNK_BYTES],
     uint16_t* out_written_bytes);
+/* Same staging as App_Gen_Stage_Blob_Chunk for an ASCII string record (VIN):
+ * only printable ASCII 0x20..0x7E except the J1939 '*' delimiter, and
+ * total_length leaves one byte of the blob capacity for that delimiter,
+ * which is appended when the PGN payload is built. */
+App_Config_Transaction_Status_t App_Gen_Stage_String_Chunk(
+    uint16_t signal_key,
+    uint8_t total_length,
+    uint8_t offset,
+    const uint8_t chunk[APP_BLOB_CHUNK_BYTES],
+    uint16_t* out_written_bytes);
 App_Config_Transaction_Status_t App_Gen_Commit_Config(
     uint16_t* out_generation,
     uint16_t* out_signal_count,

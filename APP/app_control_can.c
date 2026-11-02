@@ -618,6 +618,19 @@ static void prv_handle_write_blob(uint8_t sequence,
                        status, total_length, written);
 }
 
+static void prv_handle_set_string(uint8_t sequence,
+                                  const uint8_t* data,
+                                  uint8_t* response)
+{
+    const uint16_t signal_key = data[2];
+    const uint8_t total_length = data[3];
+    const uint8_t offset = data[4];
+    uint16_t written = 0u;
+    const App_Control_Status_t status = prv_txn_status(App_Gen_Stage_String_Chunk(signal_key, total_length, offset, &data[5],&written));
+    
+    prv_build_response(response, APP_CONTROL_OPCODE_SET_STRING, sequence, status, total_length, written);
+}
+
 static void prv_handle_set_global_percent(uint8_t sequence,
                                           const uint8_t* data,
                                           uint8_t* response)
@@ -839,6 +852,9 @@ static void prv_handle_control_frame(const J1939_Frame_Header_t* header,
             break;
         case APP_CONTROL_OPCODE_WRITE_BLOB:
             prv_handle_write_blob(sequence, data, response);
+            break;
+        case APP_CONTROL_OPCODE_SET_STRING:
+            prv_handle_set_string(sequence, data, response);
             break;
         case APP_CONTROL_OPCODE_SET_GLOBAL_PERCENT:
             prv_handle_set_global_percent(sequence, data, response);

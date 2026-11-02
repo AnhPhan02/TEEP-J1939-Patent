@@ -31,6 +31,7 @@ extern "C" {
 #define APP_CONTROL_OPCODE_ABORT_CONFIG  0x14u
 #define APP_CONTROL_OPCODE_WRITE_BLOB    0x15u
 #define APP_CONTROL_OPCODE_SET_GLOBAL_PERCENT 0x16u
+#define APP_CONTROL_OPCODE_SET_STRING    0x17u
 #define APP_CONTROL_OPCODE_SAVE_CONFIG   0x18u
 #define APP_CONTROL_OPCODE_LOAD_SAVED_CONFIG 0x19u
 #define APP_CONTROL_OPCODE_ERASE_SAVED_CONFIG 0x1Au
@@ -44,6 +45,9 @@ extern "C" {
  * WRITE_BLOB    [op, seq, signal_key_u8, total_length_u8, offset_u8, data[3]]
  *               payload bytes = min(3, total_length - offset); unused data
  *               bytes must be zero. The first chunk fixes total_length.
+ * SET_STRING    same layout as WRITE_BLOB for an ASCII string record (VIN,
+ *               key 3): chars 0x20..0x7E except '*', 1..199 chars; firmware
+ *               appends the J1939 '*' delimiter when it builds the payload.
  * SET_GLOBAL_PERCENT [op, seq, percentage_bp_u16 (0..10000), reserved_zero[4]]
  * SET_AUTOSTART [op, seq, enabled_u8 (0/1), reserved_zero[5]]
  * SAVE/LOAD/ERASE [op, seq, reserved_zero[6]]
@@ -53,7 +57,8 @@ extern "C" {
  * Responses [op|0x80, seq, status, detail, value_u32]:
  * COMMIT        detail=active PGN count, value[15:0]=generation,
  *               value[31:16]=active signal count (scalars + blobs)
- * WRITE_BLOB    detail=total_length, value=distinct blob bytes staged so far
+ * WRITE_BLOB/SET_STRING detail=total_length,
+ *               value=distinct blob bytes staged so far
  * SET_GLOBAL_PERCENT detail=excluded active-record count,
  *               value[15:0]=generation, value[31:16]=affected record count
  * GET_STATUS page 0 protocol: value = major, minor, schema, capability mask
@@ -81,7 +86,7 @@ extern "C" {
  * Every page carries APP_CONTROL_RUNTIME_* flags in detail except pages 3..9. */
 
 #define APP_CONTROL_PROTOCOL_MAJOR       2u
-#define APP_CONTROL_PROTOCOL_MINOR       4u
+#define APP_CONTROL_PROTOCOL_MINOR       5u
 #define APP_CONTROL_SCHEMA_VERSION       1u
 
 #define APP_CONTROL_CAPABILITY_STOP          (1u << 0)

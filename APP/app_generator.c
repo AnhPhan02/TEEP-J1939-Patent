@@ -834,6 +834,55 @@ App_Config_Transaction_Status_t App_Gen_Stage_Blob_Chunk(
     return APP_CONFIG_TXN_OK;
 }
 
+App_Config_Transaction_Status_t App_Gen_Stage_String_Chunk(
+    uint16_t signal_key,
+    uint8_t total_length,
+    uint8_t offset,
+    const uint8_t chunk[APP_BLOB_CHUNK_BYTES],
+    uint16_t* out_written_bytes)
+{
+    if (out_written_bytes != NULL) {
+        *out_written_bytes = J1939_Value_Store_Staged_Blob_Bytes();
+    }
+    const App_Config_Transaction_Status_t ready = prv_config_ready();
+    if (ready != APP_CONFIG_TXN_OK) {
+        return ready;
+    }
+    if (chunk == NULL) {
+        return prv_config_reject(APP_CONFIG_TXN_BAD_ARGUMENT);
+    }
+
+    const uint16_t index = J1939_Catalog_Index_From_Key(signal_key);
+    if (index == J1939_CATALOG_INDEX_INVALID) {
+        return prv_config_reject(APP_CONFIG_TXN_UNKNOWN_KEY);
+    }
+    const J1939_Catalog_Signal_t* sig = &J1939_Catalog_Signals[index];
+    if (((sig->flags & J1939_CAT_SIG_BLOB) == 0u) ||
+        (sig->special_codec != J1939_CAT_CODEC_ASCII_BLOB)) {
+        return prv_config_reject(APP_CONFIG_TXN_UNSUPPORTED_SIGNAL);
+    }
+    uint16_t capacity = (uint16_t)(sig->bit_length / 8u);
+    if (capacity > J1939_VALUE_STORE_BLOB_MAX_BYTES) {
+        capacity = J1939_VALUE_STORE_BLOB_MAX_BYTES;
+    }
+    if ((total_length == 0u) || (total_length >= capacity)) {
+        return prv_config_reject(APP_CONFIG_TXN_VALUE_OUT_OF_RANGE);
+    }
+    if (offset < total_length) {
+        const uint8_t remaining = (uint8_t)(total_length - offset);
+        const uint8_t count = (remaining < APP_BLOB_CHUNK_BYTES)
+            ? remaining : (uint8_t)APP_BLOB_CHUNK_BYTES;
+        for (uint8_t i = 0u; i < count; i++) {
+            if ((chunk[i] < 0x20u) || (chunk[i] > 0x7Eu) || (chunk[i] == '*')) {
+                return prv_config_reject(APP_CONFIG_TXN_VALUE_OUT_OF_RANGE);
+            }
+        }
+    }
+    /* Offset, padding, profile and capacity rules are the blob rules. */
+    return App_Gen_Stage_Blob_Chunk(signal_key, total_length, offset, chunk,
+                                    out_written_bytes);
+}
+
 App_Config_Transaction_Status_t App_Gen_Commit_Config(
     uint16_t* out_generation,
     uint16_t* out_signal_count,
