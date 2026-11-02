@@ -6,6 +6,7 @@
  */
 
 #include "app_cli.h"
+#include "app_boot.h"
 #include "app_config.h"
 #include "app_generator.h"
 #include "j1939_link.h"
@@ -163,11 +164,13 @@ static void prv_cmd_start(char* args)
     } else if (mode == 2) {
         sched_mode = J1939_SCHED_MODE_STRESS;
     }
+    App_Boot_Cancel_Autostart();
     App_Gen_Start(duration_sec, sched_mode);
 }
 
 static void prv_cmd_stop(void)
 {
+    App_Boot_Cancel_Autostart();
     App_Gen_Stop();
     hal_console_write_line("[ACK] STOP OK - Transmission halted (all signals returned to 0).");
     hal_console_write("[STATS] Total frames transmitted: ");

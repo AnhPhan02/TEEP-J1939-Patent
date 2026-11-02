@@ -153,6 +153,12 @@ void App_Gen_Print_Can_Timing(void);
 /* Call every loop iteration */
 void App_Gen_Process(uint32_t now_ms);
 
+/* Diagnostic only: the bus left error-passive/bus-off. No catch-up is needed
+ * because the scheduler keeps its phase during an outage and discards queued
+ * frames older than one period (J1939_Sched_Stats_t.expired). */
+void App_Gen_Note_Bus_Recovered(void);
+uint16_t App_Gen_Get_Bus_Recovery_Count(void);
+
 #ifdef __cplusplus
 }
 #endif

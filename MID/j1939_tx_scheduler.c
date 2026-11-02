@@ -260,6 +260,16 @@ static void prv_drain_queue(uint32_t now_ms,
 
     while (s_tx_queue_count > 0u) {
         Sched_Tx_Entry_t* frame = &s_tx_queue[0];
+        /* A frame one full period past its deadline is superseded by the next
+         * instance of its PGN. Sending it after a no-ACK/bus-off outage would
+         * only replay a burst of stale data once the bus accepts frames. */
+        if ((frame->period_ms != 0u) &&
+            prv_time_reached(now_ms, frame->deadline_ms + frame->period_ms)) {
+            result->expired++;
+            s_stats.expired++;
+            prv_pop_queue_front();
+            continue;
+        }
         const J1939_Catalog_PGN_t* pgn =
             prv_catalog_pgn(&s_pgns[frame->pgn_slot]);
         const J1939_Link_Status_t status =
@@ -460,9 +470,12 @@ void J1939_Sched_Tick(uint32_t now_ms, J1939_Sched_Tick_Result_t* result)
             continue;
         }
 
-        const uint32_t deadline_ms = entry->next_due_ms;
         const uint32_t periods_late =
             (now_ms - entry->next_due_ms) / period_ms;
+        /* The frame stands for the latest due slot; skipped slots are only
+         * counted, so the expiry check in the drain measures real age. */
+        const uint32_t deadline_ms =
+            entry->next_due_ms + (periods_late * period_ms);
         if (periods_late > 0u) {
             local.deadline_missed += (uint16_t)periods_late;
             s_stats.deadline_missed += periods_late;

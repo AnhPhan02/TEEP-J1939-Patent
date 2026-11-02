@@ -23,6 +23,7 @@ static uint32_t s_total_frames_sent = 0u;
 static uint32_t s_last_telemetry_ms = 0u;
 static uint32_t s_last_can_warn_ms = 0u;
 static uint32_t s_baud_kbps = APP_DEFAULT_CAN_BAUD_KBPS;
+static uint16_t s_bus_recovery_count = 0u; /* passive/bus-off -> OK since init */
 
 #define APP_CONFIG_PGN_MASK_BYTES \
     ((J1939_CATALOG_PGN_COUNT + 7u) / 8u)
@@ -462,7 +463,7 @@ static void prv_add_default(uint16_t signal_key, Pattern_Type_t type,
  * ============================================================================= */
 void App_Gen_Init(uint32_t baud_kbps)
 {
-    /* CAN controller is brought up by the OP lifecycle before this call */
+    /* Runs before the CAN join: the restored profile selects the bitrate. */
     Pattern_Generator_Init(hal_time_ms());
     J1939_Sched_Clear();
     J1939_Value_Store_Init();
@@ -472,6 +473,7 @@ void App_Gen_Init(uint32_t baud_kbps)
     s_test_duration_ms = 0u;
     s_total_frames_sent = 0u;
     s_baud_kbps = baud_kbps;
+    s_bus_recovery_count = 0u;
     s_config_state = APP_CONFIG_STATE_IDLE;
     s_active_profile_id = J1939_PROFILE_ID_CUSTOM;
     prv_config_reset_counters();
@@ -1235,4 +1237,16 @@ void App_Gen_Process(uint32_t now_ms)
     }
 
     hal_led_set(((now_ms / APP_LED_ACTIVE_HALF_MS) % 2u) != 0u);
+}
+
+void App_Gen_Note_Bus_Recovered(void)
+{
+    if (s_bus_recovery_count < UINT16_MAX) {
+        s_bus_recovery_count++;
+    }
+}
+
+uint16_t App_Gen_Get_Bus_Recovery_Count(void)
+{
+    return s_bus_recovery_count;
 }

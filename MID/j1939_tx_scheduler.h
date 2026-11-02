@@ -33,6 +33,7 @@ typedef struct {
     uint16_t failed;                /* Driver errors; frame retained for retry */
     uint16_t dropped;               /* SW queue full */
     uint16_t deadline_missed;       /* One or more periods were skipped */
+    uint16_t expired;               /* Queued frame superseded before send */
 } J1939_Sched_Tick_Result_t;
 
 typedef struct {
@@ -42,6 +43,7 @@ typedef struct {
     uint32_t failed;
     uint32_t dropped;
     uint32_t deadline_missed;
+    uint32_t expired;
     uint8_t queued;
     uint8_t high_water;
 } J1939_Sched_Stats_t;
@@ -81,7 +83,7 @@ bool J1939_Sched_Add_Catalog_Signal(uint16_t catalog_index,
 void J1939_Sched_Set_Mode(J1939_Sched_Mode_t mode);
 J1939_Sched_Mode_t J1939_Sched_Get_Mode(void);
 
-/* Restart all PGN period timers from now_ms */
+/* Restart all PGN period timers from now_ms and discard queued frames */
 void J1939_Sched_Reset_Timers(uint32_t now_ms);
 
 /* Encode and transmit every PGN whose period has elapsed */

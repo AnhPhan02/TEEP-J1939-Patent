@@ -178,6 +178,16 @@ SECTIONS
     __bss_end__ = _ebss;
   } >RAM
 
+  /* Not cleared/copied by the startup code: survives IWDG/software reset
+   * (boot-loop guard in OP/op_main.c). Content is garbage after power-on. */
+  .noinit (NOLOAD) :
+  {
+    . = ALIGN(4);
+    *(.noinit)
+    *(.noinit*)
+    . = ALIGN(4);
+  } >RAM
+
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack :
   {
