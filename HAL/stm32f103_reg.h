@@ -43,6 +43,14 @@ typedef struct {
 
 typedef struct {
     REG32 ACR;          /* 0x00 */
+    REG32 KEYR;         /* 0x04 */
+    REG32 OPTKEYR;      /* 0x08 */
+    REG32 SR;           /* 0x0C */
+    REG32 CR;           /* 0x10 */
+    REG32 AR;           /* 0x14 */
+    REG32 RESERVED;     /* 0x18 */
+    REG32 OBR;          /* 0x1C */
+    REG32 WRPR;         /* 0x20 */
 } FLASH_TypeDef;
 
 typedef struct {
@@ -194,6 +202,18 @@ typedef struct {
 #define FLASH_ACR_LATENCY_1WS       (0x1u << 0)     /* 24 < SYSCLK <= 48 MHz */
 #define FLASH_ACR_LATENCY_2WS       (0x2u << 0)     /* 48 < SYSCLK <= 72 MHz */
 #define FLASH_ACR_PRFTBE            (1u << 4)
+
+/* ---- FLASH_KEYR / FLASH_SR / FLASH_CR (RM0008 3.3.4..3.3.7) ---- */
+#define FLASH_KEY1                  0x45670123u
+#define FLASH_KEY2                  0xCDEF89ABu
+#define FLASH_SR_BSY                (1u << 0)
+#define FLASH_SR_PGERR              (1u << 2)
+#define FLASH_SR_WRPRTERR           (1u << 4)
+#define FLASH_SR_EOP                (1u << 5)
+#define FLASH_CR_PG                 (1u << 0)
+#define FLASH_CR_PER                (1u << 1)
+#define FLASH_CR_STRT               (1u << 6)
+#define FLASH_CR_LOCK               (1u << 7)
 
 /* ---- RCC_CR (7.3.1) ---- */
 #define RCC_CR_HSION                (1u << 0)

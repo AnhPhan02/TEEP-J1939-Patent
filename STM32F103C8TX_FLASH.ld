@@ -44,9 +44,22 @@ _Min_Stack_Size = 0x400; /* required amount of stack */
 /* Memories definition */
 MEMORY
 {
-  RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 20K
-  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 64K
+  RAM       (xrw)  : ORIGIN = 0x20000000, LENGTH = 20K
+  FLASH     (rx)   : ORIGIN = 0x08000000, LENGTH = 56K
+  PROFILE_A (r)    : ORIGIN = 0x0800E000, LENGTH = 4K
+  PROFILE_B (r)    : ORIGIN = 0x0800F000, LENGTH = 4K
 }
+
+__profile_slot_a_start__ = ORIGIN(PROFILE_A);
+__profile_slot_b_start__ = ORIGIN(PROFILE_B);
+__profile_slot_size__ = LENGTH(PROFILE_A);
+
+ASSERT(ORIGIN(FLASH) + LENGTH(FLASH) == ORIGIN(PROFILE_A),
+       "Application FLASH must end at profile slot A")
+ASSERT(ORIGIN(PROFILE_A) + LENGTH(PROFILE_A) == ORIGIN(PROFILE_B),
+       "Profile slots must be contiguous")
+ASSERT(ORIGIN(PROFILE_B) + LENGTH(PROFILE_B) == 0x08010000,
+       "Profile slot B must end at the 64-KiB device boundary")
 
 /* Sections */
 SECTIONS
