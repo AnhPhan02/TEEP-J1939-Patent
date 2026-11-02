@@ -98,11 +98,11 @@ bool App_Boot_Try_Autostart(void)
     if (s_info.autostart != APP_AUTOSTART_PENDING) {
         return false;
     }
-    /* Same admission gate as the CAN START command: TP/VIN profiles stay
-     * STOPPED and are reported instead of silently not transmitting. */
+    /* Same admission gate as the CAN START command; a rejected profile is
+     * reported instead of silently not transmitting. */
     if (!App_Gen_Active_Profile_Can_Start()) {
         s_info.autostart = APP_AUTOSTART_NOT_STARTABLE;
-        hal_console_write_line("[BOOT] Autostart rejected - profile is not startable (TP/VIN?).");
+        hal_console_write_line("[BOOT] Autostart rejected - profile is not startable.");
         return false;
     }
     App_Gen_Start(0u, s_autostart_mode);

@@ -38,7 +38,7 @@ typedef enum {
     APP_AUTOSTART_STARTED,
     APP_AUTOSTART_CANCELLED,     /* explicit START/STOP before CAN came up */
     APP_AUTOSTART_SUPPRESSED,    /* caller asked for safe mode */
-    APP_AUTOSTART_NOT_STARTABLE  /* e.g. TP/VIN profile, rejected by START gate */
+    APP_AUTOSTART_NOT_STARTABLE  /* rejected by the START gate */
 } App_Autostart_State_t;
 
 typedef struct {

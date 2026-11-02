@@ -9,6 +9,7 @@
 #include "app_config.h"
 #include "j1939_link.h"
 #include "j1939_encode_decode.h"
+#include "j1939_tp.h"
 #include "j1939_value_store.h"
 #include "hal_console.h"
 #include "hal_time.h"
@@ -81,11 +82,7 @@ static bool prv_is_scalar(uint16_t index)
 
 static bool prv_pgn_is_schedulable(uint8_t pgn_index)
 {
-    const J1939_Catalog_PGN_t* pgn = &J1939_Catalog_PGNs[pgn_index];
-    return (pgn->transmission_mode != J1939_CAT_TX_ON_REQUEST) &&
-           (pgn->period_ms > 0u) &&
-           (pgn->payload_length <= 8u) &&
-           ((pgn->flags & J1939_CAT_PGN_REQUIRES_TP) == 0u);
+    return J1939_Sched_Pgn_Is_Schedulable(pgn_index);
 }
 
 static bool prv_mask_test(const uint8_t* mask, uint16_t index)
@@ -513,6 +510,7 @@ void App_Gen_Init(uint32_t baud_kbps)
 bool App_Gen_Set_Baud(uint32_t baud_kbps)
 {
     s_baud_kbps = baud_kbps;
+    J1939_Tp_Cancel();                      /* a BAM never spans a bitrate change */
     bool ok = J1939_Link_Init(baud_kbps);
     App_Gen_Print_Can_Timing();
     return ok;
@@ -1115,23 +1113,10 @@ uint8_t App_Gen_Get_Active_PGN_Count(void)
 
 bool App_Gen_Active_Profile_Can_Start(void)
 {
-    if ((s_config_state != APP_CONFIG_STATE_IDLE) ||
-        !App_Gen_Has_Configured_Signals()) {
-        return false;
-    }
-    for (uint16_t i = 0u; i < J1939_CATALOG_SIGNAL_COUNT; i++) {
-        if (!J1939_Value_Store_Is_Active(i) &&
-            !Pattern_Generator_Is_Registered(i)) {
-            continue;
-        }
-        const J1939_Catalog_PGN_t* pgn =
-            &J1939_Catalog_PGNs[J1939_Catalog_Signals[i].pgn_index];
-        if ((pgn->payload_length > 8u) ||
-            ((pgn->flags & J1939_CAT_PGN_REQUIRES_TP) != 0u)) {
-            return false;
-        }
-    }
-    return true;
+    /* Multi-packet PGNs are broadcast with BAM; On-Request PGNs (single or
+     * multi-packet, e.g. VIN) stay silent until a Request service exists. */
+    return (s_config_state == APP_CONFIG_STATE_IDLE) &&
+           App_Gen_Has_Configured_Signals();
 }
 
 void App_Gen_Load_Defaults(void)
@@ -1221,6 +1206,7 @@ void App_Gen_Stop(void)
     }
     s_is_running = false;
     Pattern_Generator_Stop();
+    J1939_Tp_Cancel();
 }
 
 bool App_Gen_Is_Running(void)
