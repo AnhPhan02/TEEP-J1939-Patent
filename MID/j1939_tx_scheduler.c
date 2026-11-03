@@ -74,10 +74,11 @@ static bool prv_pgn_needs_tp(const J1939_Catalog_PGN_t* pgn)
            ((pgn->flags & J1939_CAT_PGN_REQUIRES_TP) != 0u);
 }
 
+/* period_ms is 0 only for a PGN that is sent solely in answer to a request
+ * (see J1939_Catalog_PGN_t); an approved ON_REQUEST demo broadcast has one. */
 static bool prv_pgn_is_schedulable(const J1939_Catalog_PGN_t* pgn)
 {
-    return (pgn->transmission_mode != J1939_CAT_TX_ON_REQUEST) &&
-           (pgn->period_ms > 0u) &&
+    return (pgn->period_ms > 0u) &&
            (pgn->payload_length <= J1939_TP_MAX_PAYLOAD_BYTES);
 }
 
@@ -326,6 +327,38 @@ static uint32_t prv_raw_from_physical(const J1939_Catalog_Signal_t* sig,
     return (uint32_t)(raw_f + 0.5f);
 }
 
+/* ASCII blob (VIN): text, then the J1939 terminator, rest stays 0xFF. Text
+ * that does not fit leaves room for the terminator. */
+static bool prv_pack_text(uint8_t* payload,
+                          uint16_t length,
+                          const J1939_Catalog_Signal_t* sig,
+                          const uint8_t* text,
+                          uint16_t text_length)
+{
+    const uint16_t offset = (uint16_t)(sig->start_bit / 8u);
+    if (offset >= length) {
+        return false;
+    }
+    uint16_t room = (uint16_t)(length - offset);
+    if (J1939_VIN_TERMINATOR != 0) {
+        room--;
+    }
+    const uint16_t count = (text_length < room) ? text_length : room;
+    memcpy(&payload[offset], text, count);
+    if (J1939_VIN_TERMINATOR != 0) {
+        payload[offset + count] = (uint8_t)J1939_VIN_TERMINATOR;
+    }
+    return true;
+}
+
+/* Bytes a PGN occupies on the bus: the variable-length VIN PGN uses the fixed
+ * demo frame J1939_VIN_TX_BYTES instead of its 200-byte catalog maximum. */
+static uint16_t prv_tx_length(const J1939_Catalog_PGN_t* pgn)
+{
+    return ((pgn->flags & J1939_CAT_PGN_VARIABLE_LENGTH) != 0u)
+        ? (uint16_t)J1939_VIN_TX_BYTES : pgn->payload_length;
+}
+
 /* Pack every active signal of one PGN into payload[0..length); false when no
  * signal of the PGN is active. watch_index (8-byte frames only) receives the
  * debug-watched catalog index when it is packed. */
@@ -343,10 +376,16 @@ static bool prv_pack_pgn(uint8_t pgn_slot,
         uint32_t raw = 0u;
         float physical = 0.0f;
 
+        const uint8_t* blob = NULL;
+        uint16_t blob_length = 0u;
         if (J1939_Value_Store_Get_Raw(i, &raw)) {
             const J1939_Catalog_Scale_t* scale =
                 &J1939_Catalog_Scales[sig->scale_index];
             physical = ((float)raw * scale->resolution) + scale->offset;
+        } else if (J1939_Value_Store_Get_Blob(i, &blob, &blob_length)) {
+            packed_any = prv_pack_text(payload, length, sig, blob, blob_length) ||
+                         packed_any;
+            continue;
         } else if (Pattern_Generator_Is_Registered(i)) {
             physical = Pattern_Generator_Get_Value_Instant(i, now_ms, 0.0f);
             raw = prv_raw_from_physical(sig, physical);
@@ -397,13 +436,14 @@ static void prv_start_tp_pgn(uint8_t pgn_slot, uint32_t now_ms)
 {
     Sched_PGN_Entry_t* entry = &s_pgns[pgn_slot];
     const J1939_Catalog_PGN_t* pgn = prv_catalog_pgn(entry);
-    uint8_t* payload = J1939_Tp_Bam_Prepare(pgn->payload_length);
+    const uint16_t length = prv_tx_length(pgn);
+    uint8_t* payload = J1939_Tp_Bam_Prepare(length);
     if (payload == NULL) {
         entry->tp_pending = 1u;
         return;
     }
     entry->tp_pending = 0u;
-    if (prv_pack_pgn(pgn_slot, now_ms, payload, pgn->payload_length, NULL)) {
+    if (prv_pack_pgn(pgn_slot, now_ms, payload, length, NULL)) {
         (void)J1939_Tp_Bam_Start(pgn->pgn, pgn->source_address, now_ms);
     }
 }
@@ -460,7 +500,7 @@ bool J1939_Sched_Add_Catalog_Signal(uint16_t catalog_index,
     const J1939_Catalog_Signal_t* sig = &J1939_Catalog_Signals[catalog_index];
     const J1939_Catalog_PGN_t* pgn = &J1939_Catalog_PGNs[sig->pgn_index];
     if (!prv_pgn_is_schedulable(pgn)) {
-        /* On-Request records are configured but never self-transmit. */
+        /* Request-only records are configured but never self-transmit. */
         return true;
     }
     return prv_add_pgn(sig->pgn_index, now_ms) != NULL;

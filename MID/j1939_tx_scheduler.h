@@ -77,8 +77,8 @@ void J1939_Sched_Clear(void);
  * for protocol compatibility, but generated approved timing is authoritative. */
 bool J1939_Sched_Can_Add_Catalog_Signal(uint16_t catalog_index);
 
-/* True when the PGN self-transmits (periodic/event fallback, single frame or
- * BAM); On-Request PGNs only answer requests. */
+/* True when the PGN self-transmits (periodic, event fallback or approved
+ * On-Request broadcast; single frame or BAM). */
 bool J1939_Sched_Pgn_Is_Schedulable(uint8_t catalog_pgn_index);
 bool J1939_Sched_Add_Catalog_Signal(uint16_t catalog_index,
                                     uint32_t timeframe_ms,

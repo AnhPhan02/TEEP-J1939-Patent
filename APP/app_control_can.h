@@ -46,8 +46,8 @@ extern "C" {
  *               payload bytes = min(3, total_length - offset); unused data
  *               bytes must be zero. The first chunk fixes total_length.
  * SET_STRING    same layout as WRITE_BLOB for an ASCII string record (VIN,
- *               key 3): chars 0x20..0x7E except '*', 1..199 chars; firmware
- *               appends the J1939 '*' delimiter when it builds the payload.
+ *               key 3): chars 0x20..0x7E except '*', 1..20 chars; firmware
+ *               broadcasts text + '*' + 0xFF padding as a 21-byte BAM.
  * SET_GLOBAL_PERCENT [op, seq, percentage_bp_u16 (0..10000), reserved_zero[4]]
  * SET_AUTOSTART [op, seq, enabled_u8 (0/1), reserved_zero[5]]
  * SAVE/LOAD/ERASE [op, seq, reserved_zero[6]]

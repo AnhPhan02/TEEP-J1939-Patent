@@ -859,11 +859,10 @@ App_Config_Transaction_Status_t App_Gen_Stage_String_Chunk(
         (sig->special_codec != J1939_CAT_CODEC_ASCII_BLOB)) {
         return prv_config_reject(APP_CONFIG_TXN_UNSUPPORTED_SIGNAL);
     }
-    uint16_t capacity = (uint16_t)(sig->bit_length / 8u);
-    if (capacity > J1939_VALUE_STORE_BLOB_MAX_BYTES) {
-        capacity = J1939_VALUE_STORE_BLOB_MAX_BYTES;
-    }
-    if ((total_length == 0u) || (total_length >= capacity)) {
+    /* The string must fit the transmitted VIN frame with its terminator. */
+    const uint16_t max_chars = (uint16_t)(J1939_VIN_TX_BYTES -
+                                          ((J1939_VIN_TERMINATOR != 0) ? 1u : 0u));
+    if ((total_length == 0u) || (total_length > max_chars)) {
         return prv_config_reject(APP_CONFIG_TXN_VALUE_OUT_OF_RANGE);
     }
     if (offset < total_length) {

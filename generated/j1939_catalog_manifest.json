@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "catalog_version": "2026.11.02-demo",
+  "catalog_crc32": "0xF155BBF0",
+  "record_count": 179,
+  "unique_spn_count": 177,
+  "pgn_count": 60,
+  "profile_count": 11,
+  "generator_version": "1.0.0",
+  "policy_version": "2026.11.02-demo",
+  "source_file": "doc/J1939_179_SPN_Master_Specification_Table.xlsx",
+  "source_sheet": "Master 179 SPN Database",
+  "source_sha256": "58f3dfcd285399afbdbf51c004cbd9bca4f34bf5deca4ab60d239d88a7b2cc36"
+}

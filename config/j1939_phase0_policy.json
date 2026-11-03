@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "policy_version": "2026.11.02-demo",
+  "decision_log": "Phase0_Requirement_Decision_Log.md",
+  "transport": {
+    "data_link": "SAE_J1939_21_CLASSICAL_CAN",
+    "can_fd_enabled": false,
+    "default_bitrate_bps": 500000,
+    "supported_bitrates_bps": [250000, 500000]
+  },
+  "bus_load_policy": {
+    "warning_percent": 40.0,
+    "reject_percent": 50.0,
+    "conservative_bits_per_single_frame": 160
+  },
+  "catalog_semantics": {
+    "record_count": 179,
+    "unique_spn_count": 177,
+    "pgn_count": 60,
+    "all_records_mode": "ENABLE_ACCORDING_TO_CATALOG_TX_MODE",
+    "identity": "SIGNAL_KEY_AND_PGN_SPN"
+  },
+  "runtime_capacity": {
+    "max_active_scalar_records": 179,
+    "max_active_pgns": 60,
+    "initial_dynamic_waveform_pool": 40
+  },
+  "addressing": {
+    "current_scope": "CONTROLLED_BENCH_FIXED_SOURCE_ADDRESS",
+    "source_addresses": {
+      "ENGINE_1": 0,
+      "TRANSMISSION_1": 3,
+      "BRAKES": 11
+    },
+    "address_claim_required_for_shared_network_release": true
+  },
+  "persistence": {
+    "device_saved_profile_count": 1,
+    "save_trigger": "EXPLICIT_SAVE_CONFIG",
+    "commit_auto_saves": false,
+    "stop_preserves_autostart": true,
+    "clear_active_preserves_saved_profile": true,
+    "erase_saved_profile_disables_autostart": true
+  },
+  "vin": {
+    "pgn": 65260,
+    "maximum_bytes": 200,
+    "ui_default_ascii_length": 17,
+    "encoding": "ASCII",
+    "automatic_terminator": true,
+    "transmit_actual_length": false,
+    "demo_transmit_bytes": 21
+  },
+  "dm1": {
+    "pgn": 65226,
+    "scope": "DATASET_LAMP_FIELDS_ONLY",
+    "signal_keys_are_generated_from_master": true,
+    "full_j1939_73_dtc_support": false,
+    "customer_confirmation_required": true
+  },
+  "rate_normalization": [
+    {
+      "source_aliases": ["10 ms"],
+      "mode": "PERIODIC",
+      "period_ms": 10
+    },
+    {
+      "source_aliases": ["20 ms"],
+      "mode": "PERIODIC",
+      "period_ms": 20
+    },
+    {
+      "source_aliases": ["50 ms"],
+      "mode": "PERIODIC",
+      "period_ms": 50
+    },
+    {
+      "source_aliases": ["100 ms"],
+      "mode": "PERIODIC",
+      "period_ms": 100
+    },
+    {
+      "source_aliases": ["250 ms", "250 msecs"],
+      "mode": "PERIODIC",
+      "period_ms": 250
+    },
+    {
+      "source_aliases": ["330 ms"],
+      "mode": "PERIODIC",
+      "period_ms": 330
+    },
+    {
+      "source_aliases": ["0.5 s", "500 ms"],
+      "mode": "PERIODIC",
+      "period_ms": 500
+    },
+    {
+      "source_aliases": ["1 s", "1s", "1 sec"],
+      "mode": "PERIODIC",
+      "period_ms": 1000
+    },
+    {
+      "source_aliases": ["On request"],
+      "mode": "ON_REQUEST",
+      "period_ms": 0
+    },
+    {
+      "source_aliases": ["engine speed dependent"],
+      "mode": "ENGINE_SPEED_DEPENDENT",
+      "period_ms": 0
+    }
+  ],
+  "pgn_policies": {
+    "0xF004": {
+      "mode": "ENGINE_SPEED_DEPENDENT",
+      "fallback_period_ms": 5000,
+      "engineer_smooth_period_ms": 10,
+      "customer_confirmation_required": true
+    },
+    "0xFE70": {
+      "mode": "ON_REQUEST",
+      "unsolicited_periodic_enabled": true,
+      "unsolicited_period_ms": 1000,
+      "approval": "CUSTOMER_DEMO_2026-11-02"
+    },
+    "0xFE8D": {
+      "mode": "ON_REQUEST",
+      "unsolicited_periodic_enabled": true,
+      "unsolicited_period_ms": 1000,
+      "approval": "CUSTOMER_DEMO_2026-11-02"
+    },
+    "0xFDCC": {
+      "mode": "ON_CHANGE",
+      "fallback_period_ms": 1000,
+      "maximum_messages_per_second": 10,
+      "trigger": "SWITCH_STATE_CHANGE"
+    },
+    "0xFE41": {
+      "mode": "ON_CHANGE",
+      "fallback_period_ms": 1000,
+      "maximum_messages_per_second": 10,
+      "trigger": "LAMP_STATE_CHANGE"
+    },
+    "0xFEC6": {
+      "mode": "ON_REQUEST",
+      "minimum_response_interval_ms": 100,
+      "unsolicited_periodic_enabled": true,
+      "unsolicited_period_ms": 100,
+      "approval": "CUSTOMER_DEMO_2026-11-02",
+      "customer_confirmation_required": true
+    },
+    "0xFECA": {
+      "mode": "ON_REQUEST",
+      "scope": "DATASET_LAMP_FIELDS_ONLY",
+      "full_j1939_73_dtc_support": false,
+      "unsolicited_periodic_enabled": true,
+      "unsolicited_period_ms": 1000,
+      "approval": "CUSTOMER_DEMO_2026-11-02",
+      "customer_confirmation_required": true
+    },
+    "0xFEDC": {
+      "mode": "ON_REQUEST",
+      "unsolicited_periodic_enabled": true,
+      "unsolicited_period_ms": 1000,
+      "approval": "CUSTOMER_DEMO_2026-11-02"
+    },
+    "0xFEE1": {
+      "mode": "ON_CHANGE",
+      "fallback_period_ms": 5000,
+      "change_threshold_percent": 10.0,
+      "maximum_messages_per_second": 10
+    },
+    "0xFEE3": {
+      "mode": "ON_CHANGE",
+      "fallback_period_ms": 5000,
+      "change_threshold_percent": 10.0,
+      "maximum_messages_per_second": 10
+    },
+    "0xFEE5": {
+      "mode": "ON_REQUEST",
+      "unsolicited_periodic_enabled": true,
+      "unsolicited_period_ms": 1000,
+      "approval": "CUSTOMER_DEMO_2026-11-02"
+    },
+    "0xFEE6": {
+      "mode": "ON_REQUEST",
+      "unsolicited_periodic_enabled": true,
+      "unsolicited_period_ms": 1000,
+      "approval": "CUSTOMER_DEMO_2026-11-02"
+    },
+    "0xFEE9": {
+      "mode": "ON_REQUEST",
+      "unsolicited_periodic_enabled": true,
+      "unsolicited_period_ms": 1000,
+      "approval": "CUSTOMER_DEMO_2026-11-02"
+    },
+    "0xFEEA": {
+      "mode": "ON_REQUEST",
+      "unsolicited_periodic_enabled": true,
+      "unsolicited_period_ms": 1000,
+      "approval": "CUSTOMER_DEMO_2026-11-02"
+    },
+    "0xFEEC": {
+      "mode": "ON_REQUEST",
+      "unsolicited_periodic_enabled": true,
+      "unsolicited_period_ms": 5000,
+      "approval": "CUSTOMER_DEMO_2026-11-02",
+      "variable_length": true,
+      "maximum_payload_bytes": 200,
+      "transport_when_length_exceeds_bytes": 8
+    }
+  },
+  "customer_profile_policy": {
+    "default_locked_required_set": true,
+    "allow_out_of_profile_signals_in_user_mode": false
+  },
+  "release_confirmations": [
+    "TARGET_NETWORK_ACCEPTS_500_KBIT_S",
+    "EEC1_ENGINE_SPEED_RATE_MAPPING",
+    "FEC6_100MS_SEMANTICS",
+    "DM1_FULL_SCOPE",
+    "ADDRESS_CLAIM_FOR_SHARED_NETWORK"
+  ]
+}
