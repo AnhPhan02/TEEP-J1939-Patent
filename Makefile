@@ -133,18 +133,20 @@ clean:
 	rm -rf $(BUILD)
 
 # Single-source catalog (host tools). The generator writes the firmware
-# database MID/j1939_signal_definitions.{c,h} and generated/; customer
-# profiles are linked into firmware in Phase 5.
+# databases MID/j1939_signal_definitions.{c,h},
+# MID/j1939_customer_profiles.{c,h}, and the UI/test artifacts in generated/.
 PYTHON  ?= python
 HOST_CC ?= gcc
 HOST_DIR := build/host
 HOST_CFLAGS := -std=gnu11 -Wall -Wextra -IMID -IAPP -IHAL -IOP -Igenerated -Itests/support
 CATALOG_TEST := $(HOST_DIR)/test_j1939_catalog_generated.exe
-GENERATED_C := generated/j1939_customer_profiles_generated.c
+PROFILE_C := MID/j1939_customer_profiles.c
 # Legacy human-readable database: host reference for compatibility tests only.
 LEGACY_C := tests/support/j1939_signal_definitions_legacy.c
 # Legacy tests provide their own link/HAL stubs, hence the reduced source sets.
-MID_NO_LINK := $(filter-out MID/j1939_link.c MID/j1939_rx_router.c,$(wildcard MID/*.c))
+MID_NO_STORAGE := $(filter-out MID/j1939_profile_storage.c,$(wildcard MID/*.c))
+MID_NO_LINK := $(filter-out MID/j1939_link.c MID/j1939_rx_router.c MID/j1939_profile_storage.c,$(wildcard MID/*.c))
+PERSIST_STUB := tests/support/app_persistence_stub.c
 
 .PHONY: catalog catalog-check catalog-test host-test
 
