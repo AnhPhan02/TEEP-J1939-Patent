@@ -67,6 +67,16 @@ bool J1939_Encode_Signal(const J1939_Signal_Definition_t* signal_def,
                          float physical_value,
                          uint8_t* payload);
 
+/* Raw field codec used with the generated catalog. start_bit is zero-based in
+ * the logical payload, bit_length is 1..32 and raw bits are little-endian
+ * (J1939 Intel order). Pack rejects a raw value wider than the field and never
+ * touches bits outside it; both return false on any boundary violation. */
+bool J1939_Pack_Raw(uint8_t* payload, uint16_t payload_len,
+                    uint16_t start_bit, uint8_t bit_length, uint32_t raw_value);
+bool J1939_Unpack_Raw(const uint8_t* payload, uint16_t payload_len,
+                      uint16_t start_bit, uint8_t bit_length,
+                      uint32_t* out_raw_value);
+
 /* Backward-compatible 8-byte boundary wrapper. */
 bool J1939_Is_Signal_8Byte_Scalar(const J1939_Signal_Definition_t* signal_def);
 

@@ -6,6 +6,9 @@
  */
 
 #include "j1939_pattern_generator.h"
+
+#if ENABLE_WAVEFORM  /* whole engine compiled out in constant-only builds */
+
 #include <string.h>
 #include <math.h>
 
@@ -20,11 +23,11 @@ typedef struct {
     Pattern_Config_t config;
     float   current_value;
     uint32_t last_update_ms;
-    float   ramp_direction;
-    uint32_t step_state_index;
 } Pattern_State_t;
 
-static Pattern_State_t  g_patterns[PATTERN_GEN_MAX_SIGNALS];
+/* Dynamic waveform pool. Constant signals are kept in j1939_value_store and
+ * never occupy a Pattern_State_t. */
+static Pattern_State_t  g_patterns[J1939_WAVEFORM_POOL_CAPACITY];
 static uint8_t          g_pattern_count = 0u;
 static uint32_t         g_sim_start_ms = 0u;
 static bool             g_is_running = true;
@@ -138,7 +141,7 @@ static float prv_compute_next_value(Pattern_State_t* state, uint32_t current_tim
         
         case PATTERN_RANDOM_WALK: {
             /* Pure non-repeating stochastic random signal (not a harmonic pattern) */
-            uint32_t prng_seed = (((uint32_t)cfg->signal_id + 1u) * 2654435761u) ^
+            uint32_t prng_seed = (((uint32_t)cfg->catalog_index + 1u) * 2654435761u) ^
                                  (current_time_ms * 1664525u + 1013904223u);
             uint32_t r1 = prv_xorshift32(&prng_seed);
             float u = (float)(r1 % 1000000u) / 1000000.0f;
@@ -181,35 +184,56 @@ void Pattern_Generator_Init(uint32_t sim_start_time_ms)
     g_is_running = true;
 }
 
-bool Pattern_Generator_Can_Register(J1939_Signal_Id_t signal_id)
+bool Pattern_Generator_Can_Register(uint16_t catalog_index)
 {
-    if (J1939_Find_Signal_By_Id(signal_id) == NULL) {
+    if (catalog_index >= J1939_CATALOG_SIGNAL_COUNT) {
         return false;
     }
 
     for (uint8_t i = 0u; i < g_pattern_count; i++) {
-        if (g_patterns[i].config.signal_id == signal_id) {
+        if (g_patterns[i].config.catalog_index == catalog_index) {
             return true;
         }
     }
-    return g_pattern_count < PATTERN_GEN_MAX_SIGNALS;
+    return g_pattern_count < J1939_WAVEFORM_POOL_CAPACITY;
+}
+
+bool Pattern_Generator_Unregister(uint16_t catalog_index)
+{
+    for (uint8_t i = 0u; i < g_pattern_count; i++) {
+        if (g_patterns[i].config.catalog_index == catalog_index) {
+            g_pattern_count--;
+            g_patterns[i] = g_patterns[g_pattern_count];
+            memset(&g_patterns[g_pattern_count], 0, sizeof(g_patterns[0]));
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Pattern_Generator_Is_Registered(uint16_t catalog_index)
+{
+    for (uint8_t i = 0u; i < g_pattern_count; i++) {
+        if (g_patterns[i].config.catalog_index == catalog_index) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool Pattern_Generator_Register(const Pattern_Config_t* config)
 {
     if ((config == NULL) ||
-        !Pattern_Generator_Can_Register(config->signal_id)) {
+        !Pattern_Generator_Can_Register(config->catalog_index)) {
         return false;
     }
 
-    /* If this database signal is already registered, update it in place. */
+    /* If this catalog signal is already registered, update it in place. */
     for (uint8_t i = 0u; i < g_pattern_count; i++) {
-        if (g_patterns[i].config.signal_id == config->signal_id) {
+        if (g_patterns[i].config.catalog_index == config->catalog_index) {
             g_patterns[i].config = *config;
             g_patterns[i].current_value = config->initial_value;
             g_patterns[i].last_update_ms = g_sim_start_ms;
-            g_patterns[i].ramp_direction = +1.0f;
-            g_patterns[i].step_state_index = 0u;
             return true;
         }
     }
@@ -218,8 +242,6 @@ bool Pattern_Generator_Register(const Pattern_Config_t* config)
     state->config = *config;
     state->current_value = config->initial_value;
     state->last_update_ms = g_sim_start_ms;
-    state->ramp_direction = +1.0f;
-    state->step_state_index = 0u;
     
     g_pattern_count++;
     return true;
@@ -236,23 +258,23 @@ void Pattern_Generator_Update(uint32_t current_time_ms)
     }
 }
 
-float Pattern_Generator_Get_Value(J1939_Signal_Id_t signal_id,
+float Pattern_Generator_Get_Value(uint16_t catalog_index,
                                   float default_value)
 {
     for (uint8_t i = 0u; i < g_pattern_count; i++) {
-        if (g_patterns[i].config.signal_id == signal_id) {
+        if (g_patterns[i].config.catalog_index == catalog_index) {
             return g_patterns[i].current_value;
         }
     }
     return default_value;
 }
 
-float Pattern_Generator_Get_Value_Instant(J1939_Signal_Id_t signal_id,
+float Pattern_Generator_Get_Value_Instant(uint16_t catalog_index,
                                           uint32_t current_time_ms,
                                           float default_value)
 {
     for (uint8_t i = 0u; i < g_pattern_count; i++) {
-        if (g_patterns[i].config.signal_id == signal_id) {
+        if (g_patterns[i].config.catalog_index == catalog_index) {
             return prv_compute_next_value(&g_patterns[i], current_time_ms);
         }
     }
@@ -268,7 +290,6 @@ void Pattern_Generator_Reset(uint32_t current_time_ms)
         Pattern_State_t* state = &g_patterns[i];
         state->current_value = state->config.initial_value;
         state->last_update_ms = current_time_ms;
-        state->ramp_direction = +1.0f;
     }
 }
 
@@ -290,3 +311,15 @@ bool Pattern_Generator_Is_Running(void)
 {
     return g_is_running;
 }
+
+bool Pattern_Generator_Get_Catalog_Index(uint8_t ordinal,
+                                         uint16_t* out_catalog_index)
+{
+    if ((out_catalog_index == NULL) || (ordinal >= g_pattern_count)) {
+        return false;
+    }
+    *out_catalog_index = g_patterns[ordinal].config.catalog_index;
+    return true;
+}
+
+#endif /* ENABLE_WAVEFORM */

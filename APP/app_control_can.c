@@ -6,10 +6,13 @@
  */
 
 #include "app_control_can.h"
+#include "app_boot.h"
 #include "app_generator.h"
+#include "app_persistence.h"
 #include "hal_time.h"
 #include "j1939_link.h"
 #include "j1939_rx_router.h"
+#include "j1939_value_store.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
@@ -234,12 +237,85 @@ static bool prv_reserved_bytes_are_zero(const uint8_t* data)
     return true;
 }
 
+static bool prv_bytes_are_zero_from(const uint8_t* data, uint8_t first)
+{
+    for (uint8_t i = first; i < APP_CONTROL_FRAME_LENGTH; i++) {
+        if (data[i] != 0u) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static App_Control_Status_t prv_txn_status(
+    App_Config_Transaction_Status_t status)
+{
+    switch (status) {
+        case APP_CONFIG_TXN_OK:
+            return APP_CONTROL_STATUS_OK;
+        case APP_CONFIG_TXN_UNKNOWN_KEY:
+            return APP_CONTROL_STATUS_UNKNOWN_SIGNAL_KEY;
+        case APP_CONFIG_TXN_VALUE_OUT_OF_RANGE:
+            return APP_CONTROL_STATUS_VALUE_OUT_OF_RANGE;
+        case APP_CONFIG_TXN_UNSUPPORTED_SIGNAL:
+            return APP_CONTROL_STATUS_BAD_ARGUMENT;
+        case APP_CONFIG_TXN_RESOURCE_FULL:
+            return APP_CONTROL_STATUS_RESOURCE_FULL;
+        case APP_CONFIG_TXN_COUNT_MISMATCH:
+            return APP_CONTROL_STATUS_COUNT_MISMATCH;
+        case APP_CONFIG_TXN_REJECTED:
+            return APP_CONTROL_STATUS_TRANSACTION_REJECTED;
+        case APP_CONFIG_TXN_INTERNAL_ERROR:
+            return APP_CONTROL_STATUS_INTERNAL_ERROR;
+        case APP_CONFIG_TXN_ALREADY_OPEN:
+            return APP_CONTROL_STATUS_BUSY;
+        case APP_CONFIG_TXN_BLOB_INCOMPLETE:
+            return APP_CONTROL_STATUS_BLOB_INCOMPLETE;
+        case APP_CONFIG_TXN_BAD_ARGUMENT:
+            return APP_CONTROL_STATUS_BAD_ARGUMENT;
+        case APP_CONFIG_TXN_UNKNOWN_PROFILE:
+            return APP_CONTROL_STATUS_UNKNOWN_PROFILE;
+        case APP_CONFIG_TXN_PROFILE_KEY_NOT_ALLOWED:
+            return APP_CONTROL_STATUS_PROFILE_KEY_NOT_ALLOWED;
+        case APP_CONFIG_TXN_PROFILE_MISMATCH:
+            return APP_CONTROL_STATUS_PROFILE_MISMATCH;
+        case APP_CONFIG_TXN_INVALID_STATE:
+        case APP_CONFIG_TXN_NOT_OPEN:
+        default:
+            return APP_CONTROL_STATUS_INVALID_STATE;
+    }
+}
+
+static App_Control_Status_t prv_persistence_status(
+    App_Persistence_Status_t status)
+{
+    switch (status) {
+        case APP_PERSISTENCE_OK:
+            return APP_CONTROL_STATUS_OK;
+        case APP_PERSISTENCE_EMPTY:
+            return APP_CONTROL_STATUS_STORAGE_EMPTY;
+        case APP_PERSISTENCE_INVALID_STATE:
+            return APP_CONTROL_STATUS_INVALID_STATE;
+        case APP_PERSISTENCE_UNSUPPORTED_CONFIG:
+            return APP_CONTROL_STATUS_STORAGE_UNSUPPORTED;
+        case APP_PERSISTENCE_CATALOG_MISMATCH:
+            return APP_CONTROL_STATUS_CATALOG_MISMATCH;
+        case APP_PERSISTENCE_INVALID_IMAGE:
+            return APP_CONTROL_STATUS_STORAGE_INVALID;
+        case APP_PERSISTENCE_FLASH_ERROR:
+        case APP_PERSISTENCE_VERIFY_ERROR:
+            return APP_CONTROL_STATUS_STORAGE_ERROR;
+        case APP_PERSISTENCE_APPLY_ERROR:
+        default:
+            return APP_CONTROL_STATUS_INTERNAL_ERROR;
+    }
+}
+
 static void prv_handle_set_const(uint8_t sequence,
                                  const uint8_t* data,
                                  uint8_t* response)
 {
-    const J1939_Signal_Key_t signal_key =
-        (J1939_Signal_Key_t)prv_read_u16_le(&data[2]);
+    const uint16_t signal_key = prv_read_u16_le(&data[2]);
     const uint32_t requested_raw = prv_read_u32_le(&data[4]);
     uint32_t applied_raw = 0u;
 
@@ -261,6 +337,10 @@ static void prv_handle_set_const(uint8_t sequence,
             prv_build_response(response, APP_CONTROL_OPCODE_SET_CONST, sequence,
                                APP_CONTROL_STATUS_BAD_ARGUMENT, 0u, 0u);
             break;
+        case APP_SET_CONST_TRANSACTION_OPEN:
+            prv_build_response(response, APP_CONTROL_OPCODE_SET_CONST, sequence,
+                               APP_CONTROL_STATUS_INVALID_STATE, 0u, 0u);
+            break;
         default:
             prv_build_response(response, APP_CONTROL_OPCODE_SET_CONST, sequence,
                                APP_CONTROL_STATUS_BUSY, 0u, 0u);
@@ -277,12 +357,13 @@ static void prv_handle_start(uint8_t sequence,
                            APP_CONTROL_STATUS_BAD_ARGUMENT, 0u, 0u);
         return;
     }
-    if (!App_Gen_Has_Configured_Signals()) {
+    if (!App_Gen_Active_Profile_Can_Start()) {
         prv_build_response(response, APP_CONTROL_OPCODE_START, sequence,
                            APP_CONTROL_STATUS_INVALID_STATE, 0u, 0u);
         return;
     }
 
+    App_Boot_Cancel_Autostart();
     App_Gen_Start(0u, J1939_SCHED_MODE_SAE);
     prv_build_response(response, APP_CONTROL_OPCODE_START, sequence,
                        APP_CONTROL_STATUS_OK, 0u, 0u);
@@ -299,6 +380,7 @@ static void prv_handle_stop(uint8_t sequence,
     }
 
     /* STOP is deliberately idempotent so a retry is safe. */
+    App_Boot_Cancel_Autostart();
     App_Gen_Stop();
     prv_build_response(response, APP_CONTROL_OPCODE_STOP, sequence,
                        APP_CONTROL_STATUS_OK, 0u, 0u);
@@ -318,6 +400,11 @@ static void prv_handle_clear_config(uint8_t sequence,
                            APP_CONTROL_STATUS_INVALID_STATE, 0u, 0u);
         return;
     }
+    if (App_Gen_Config_Transaction_Open()) {
+        prv_build_response(response, APP_CONTROL_OPCODE_CLEAR_CONFIG, sequence,
+                           APP_CONTROL_STATUS_INVALID_STATE, 0u, 0u);
+        return;
+    }
 
     /* CLEAR_CONFIG is intentionally separate from STOP: STOP preserves the
      * current profile, while CLEAR_CONFIG releases every signal/PGN slot. */
@@ -330,7 +417,9 @@ static void prv_handle_get_status(uint8_t sequence,
                                   const uint8_t* data,
                                   uint8_t* response)
 {
-    if (!prv_reserved_bytes_are_zero(data)) {
+    const uint8_t page = data[2];
+    if (!prv_bytes_are_zero_from(data, 3u) ||
+        (page > APP_CONTROL_STATUS_PAGE_LAST)) {
         prv_build_response(response, APP_CONTROL_OPCODE_GET_STATUS, sequence,
                            APP_CONTROL_STATUS_BAD_ARGUMENT, 0u, 0u);
         return;
@@ -340,12 +429,334 @@ static void prv_handle_get_status(uint8_t sequence,
     if (App_Gen_Is_Running()) {
         runtime_flags |= APP_CONTROL_RUNTIME_RUNNING;
     }
-    if (App_Gen_Is_Signal_Configured(J1939_SIGNAL_KEY_ENGINE_SPEED)) {
+    if (App_Gen_Is_Signal_Configured(J1939_KEY_EEC1_SPN190)) {
         runtime_flags |= APP_CONTROL_RUNTIME_ENGINE_SPEED_CONFIGURED;
     }
+    if (App_Gen_Config_Transaction_Open()) {
+        runtime_flags |= APP_CONTROL_RUNTIME_TRANSACTION_OPEN;
+    }
+    if (App_Gen_Config_Transaction_Rejected()) {
+        runtime_flags |= APP_CONTROL_RUNTIME_TRANSACTION_REJECTED;
+    }
+    if (App_Gen_Get_Config_Generation() != 0u) {
+        runtime_flags |= APP_CONTROL_RUNTIME_COMMITTED;
+    }
+
+    uint32_t value = APP_CONTROL_PROTOCOL_INFO_VALUE;
+    uint8_t detail = runtime_flags;
+    switch (page) {
+        case APP_CONTROL_STATUS_PAGE_RUNTIME:
+            value = (uint32_t)App_Gen_Get_Config_Generation() |
+                    ((uint32_t)App_Gen_Get_Active_Signal_Count() << 16) |
+                    ((uint32_t)App_Gen_Get_Active_PGN_Count() << 24);
+            break;
+        case APP_CONTROL_STATUS_PAGE_CONFIG:
+            value = App_Gen_Get_Config_Crc();
+            break;
+        case APP_CONTROL_STATUS_PAGE_LIMITS:
+            detail = (uint8_t)APP_CONTROL_FEATURES;
+            value = (uint32_t)J1939_PROFILE_SIGNAL_CAPACITY |
+                    ((uint32_t)J1939_PROFILE_PGN_CAPACITY << 8) |
+                    ((uint32_t)J1939_WAVEFORM_POOL_CAPACITY << 16) |
+                    ((uint32_t)J1939_VALUE_STORE_BLOB_MAX_BYTES << 24);
+            break;
+        case APP_CONTROL_STATUS_PAGE_PROFILE: {
+            const uint8_t profile_id = App_Gen_Get_Active_Profile_Id();
+            const J1939_Customer_Profile_t* profile =
+                J1939_Customer_Profile_Find(profile_id);
+            if (profile != NULL) {
+                detail = profile->flags;
+                if (profile->unresolved_mode_count != 0u) {
+                    detail |= J1939_PROFILE_FLAG_UNRESOLVED_MODE;
+                }
+                value = (uint32_t)profile->profile_id |
+                        ((uint32_t)profile->signal_count << 8) |
+                        ((uint32_t)profile->pgn_count << 16) |
+                        ((uint32_t)profile->baseline_load_500k_decipct << 24);
+            } else {
+                detail = 0u;
+                value = (uint32_t)J1939_PROFILE_ID_CUSTOM |
+                        ((uint32_t)App_Gen_Get_Active_Signal_Count() << 8) |
+                        ((uint32_t)App_Gen_Get_Active_PGN_Count() << 16) |
+                        (0xFFu << 24);
+            }
+            break;
+        }
+        case APP_CONTROL_STATUS_PAGE_STORAGE:
+        case APP_CONTROL_STATUS_PAGE_STORAGE_SEQUENCE:
+        case APP_CONTROL_STATUS_PAGE_STORAGE_METADATA: {
+            App_Persistence_Info_t info;
+            const App_Persistence_Status_t storage =
+                App_Persistence_Get_Info(&info);
+            detail = 0u;
+            value = 0u;
+            if (storage == APP_PERSISTENCE_OK) {
+                if (info.valid) {
+                    detail |= APP_CONTROL_STORAGE_VALID;
+                }
+                if (info.autostart) {
+                    detail |= APP_CONTROL_STORAGE_AUTOSTART;
+                }
+                if (info.dirty) {
+                    detail |= APP_CONTROL_STORAGE_DIRTY;
+                }
+                if (info.stored.slot != 0u) {
+                    detail |= APP_CONTROL_STORAGE_SLOT_B;
+                }
+            }
+            if (page == APP_CONTROL_STATUS_PAGE_STORAGE) {
+                value = info.valid ? info.stored.config_crc : 0u;
+            } else if (page == APP_CONTROL_STATUS_PAGE_STORAGE_SEQUENCE) {
+                detail = info.valid ? info.stored.profile_id
+                                    : J1939_PROFILE_ID_CUSTOM;
+                value = info.valid ? info.stored.sequence : 0u;
+            } else {
+                detail = (uint8_t)info.last_status;
+                value = info.valid
+                    ? ((uint32_t)info.stored.signal_count |
+                       ((info.stored.bitrate_bps / 1000u) << 16))
+                    : 0u;
+            }
+            break;
+        }
+        case APP_CONTROL_STATUS_PAGE_BOOT: {
+            App_Boot_Info_t boot;
+            App_Boot_Get_Info(&boot);
+            detail = boot.reset_cause;
+            value = (uint32_t)(uint8_t)boot.result |
+                    ((uint32_t)(uint8_t)boot.load_status << 8) |
+                    ((uint32_t)(uint8_t)boot.autostart << 16) |
+                    ((uint32_t)boot.watchdog_streak << 24);
+            break;
+        }
+        case APP_CONTROL_STATUS_PAGE_LINK: {
+            J1939_Link_Bus_Error_t bus;
+            J1939_Link_Get_Bus_Error(&bus);
+            detail = 0u;
+            if (bus.error_warning) {
+                detail |= APP_CONTROL_BUS_ERROR_WARNING;
+            }
+            if (bus.error_passive) {
+                detail |= APP_CONTROL_BUS_ERROR_PASSIVE;
+            }
+            if (bus.bus_off) {
+                detail |= APP_CONTROL_BUS_OFF;
+            }
+            value = (uint32_t)App_Gen_Get_Bus_Recovery_Count() |
+                    ((uint32_t)bus.tec << 16) |
+                    ((uint32_t)bus.rec << 24);
+            break;
+        }
+        default:
+            break;
+    }
     prv_build_response(response, APP_CONTROL_OPCODE_GET_STATUS, sequence,
-                       APP_CONTROL_STATUS_OK, runtime_flags,
-                       APP_CONTROL_PROTOCOL_INFO_VALUE);
+                       APP_CONTROL_STATUS_OK, detail, value);
+}
+
+_Static_assert((J1939_PROFILE_SIGNAL_CAPACITY <= 0xFFu) &&
+               (J1939_PROFILE_PGN_CAPACITY <= 0xFFu) &&
+               (J1939_WAVEFORM_POOL_CAPACITY <= 0xFFu) &&
+               (J1939_VALUE_STORE_BLOB_MAX_BYTES <= 0xFFu),
+               "GET_STATUS limits page packs each limit into one byte");
+
+static void prv_handle_begin_config(uint8_t sequence,
+                                    const uint8_t* data,
+                                    uint8_t* response)
+{
+    const uint32_t catalog_crc = prv_read_u32_le(&data[2]);
+    const uint16_t expected_count = data[6];
+    const uint8_t profile_blob = data[7];
+    const uint8_t expected_blob_count =
+        profile_blob & APP_CONTROL_BEGIN_BLOB_MASK;
+    const uint8_t selector =
+        profile_blob >> APP_CONTROL_BEGIN_PROFILE_SHIFT;
+    const uint8_t profile_id =
+        (selector == APP_CONTROL_BEGIN_PROFILE_SELECTOR_CUSTOM)
+            ? J1939_PROFILE_ID_CUSTOM : (uint8_t)(selector - 1u);
+    if (catalog_crc != J1939_CATALOG_CRC32) {
+        prv_build_response(response, APP_CONTROL_OPCODE_BEGIN_CONFIG, sequence,
+                           APP_CONTROL_STATUS_CATALOG_MISMATCH, 0u,
+                           J1939_CATALOG_CRC32);
+        return;
+    }
+
+    const App_Control_Status_t status = prv_txn_status(
+        App_Gen_Begin_Profile_Config(expected_count, expected_blob_count,
+                                     profile_id));
+    prv_build_response(response, APP_CONTROL_OPCODE_BEGIN_CONFIG, sequence,
+                       status, (uint8_t)expected_count,
+                       J1939_CATALOG_CRC32);
+}
+
+static void prv_handle_set_signal_raw(uint8_t sequence,
+                                      const uint8_t* data,
+                                      uint8_t* response)
+{
+    const uint16_t signal_key = prv_read_u16_le(&data[2]);
+    const uint32_t raw_value = prv_read_u32_le(&data[4]);
+    uint16_t staged_count = 0u;
+    const App_Control_Status_t status = prv_txn_status(
+        App_Gen_Stage_Constant_Raw(signal_key, raw_value, &staged_count));
+    prv_build_response(response, APP_CONTROL_OPCODE_SET_SIGNAL_RAW, sequence,
+                       status, (uint8_t)staged_count,
+                       (status == APP_CONTROL_STATUS_OK) ? raw_value : 0u);
+}
+
+static void prv_handle_write_blob(uint8_t sequence,
+                                  const uint8_t* data,
+                                  uint8_t* response)
+{
+    const uint16_t signal_key = data[2];
+    const uint8_t total_length = data[3];
+    const uint8_t offset = data[4];
+    uint16_t written = 0u;
+    const App_Control_Status_t status = prv_txn_status(
+        App_Gen_Stage_Blob_Chunk(signal_key, total_length, offset, &data[5],
+                                 &written));
+    prv_build_response(response, APP_CONTROL_OPCODE_WRITE_BLOB, sequence,
+                       status, total_length, written);
+}
+
+static void prv_handle_set_string(uint8_t sequence,
+                                  const uint8_t* data,
+                                  uint8_t* response)
+{
+    const uint16_t signal_key = data[2];
+    const uint8_t total_length = data[3];
+    const uint8_t offset = data[4];
+    uint16_t written = 0u;
+    const App_Control_Status_t status = prv_txn_status(App_Gen_Stage_String_Chunk(signal_key, total_length, offset, &data[5],&written));
+    
+    prv_build_response(response, APP_CONTROL_OPCODE_SET_STRING, sequence, status, total_length, written);
+}
+
+static void prv_handle_set_global_percent(uint8_t sequence,
+                                          const uint8_t* data,
+                                          uint8_t* response)
+{
+    if (!prv_bytes_are_zero_from(data, 4u)) {
+        prv_build_response(response, APP_CONTROL_OPCODE_SET_GLOBAL_PERCENT,
+                           sequence, APP_CONTROL_STATUS_BAD_ARGUMENT, 0u, 0u);
+        return;
+    }
+
+    uint16_t generation = 0u;
+    uint16_t affected = 0u;
+    uint16_t excluded = 0u;
+    const App_Control_Status_t status = prv_txn_status(
+        App_Gen_Set_Global_Percent(prv_read_u16_le(&data[2]), &generation,
+                                   &affected, &excluded));
+    const uint8_t excluded_u8 = (excluded > 0xFFu) ? 0xFFu : (uint8_t)excluded;
+    prv_build_response(response, APP_CONTROL_OPCODE_SET_GLOBAL_PERCENT,
+                       sequence, status, excluded_u8,
+                       (uint32_t)generation | ((uint32_t)affected << 16));
+}
+
+static void prv_handle_commit_config(uint8_t sequence,
+                                     const uint8_t* data,
+                                     uint8_t* response)
+{
+    if (!prv_reserved_bytes_are_zero(data)) {
+        prv_build_response(response, APP_CONTROL_OPCODE_COMMIT_CONFIG, sequence,
+                           APP_CONTROL_STATUS_BAD_ARGUMENT, 0u, 0u);
+        return;
+    }
+
+    uint16_t generation = 0u;
+    uint16_t signal_count = 0u;
+    uint8_t pgn_count = 0u;
+    const App_Control_Status_t status = prv_txn_status(
+        App_Gen_Commit_Config(&generation, &signal_count, &pgn_count));
+    const uint32_t summary = (uint32_t)generation |
+                             ((uint32_t)signal_count << 16);
+    prv_build_response(response, APP_CONTROL_OPCODE_COMMIT_CONFIG, sequence,
+                       status, pgn_count,
+                       (status == APP_CONTROL_STATUS_OK) ? summary : 0u);
+}
+
+static void prv_handle_abort_config(uint8_t sequence,
+                                    const uint8_t* data,
+                                    uint8_t* response)
+{
+    if (!prv_reserved_bytes_are_zero(data)) {
+        prv_build_response(response, APP_CONTROL_OPCODE_ABORT_CONFIG, sequence,
+                           APP_CONTROL_STATUS_BAD_ARGUMENT, 0u, 0u);
+        return;
+    }
+    App_Gen_Abort_Config();
+    prv_build_response(response, APP_CONTROL_OPCODE_ABORT_CONFIG, sequence,
+                       APP_CONTROL_STATUS_OK, 0u, 0u);
+}
+
+static void prv_handle_save_config(uint8_t sequence,
+                                   const uint8_t* data,
+                                   uint8_t* response)
+{
+    if (!prv_reserved_bytes_are_zero(data)) {
+        prv_build_response(response, APP_CONTROL_OPCODE_SAVE_CONFIG, sequence,
+                           APP_CONTROL_STATUS_BAD_ARGUMENT, 0u, 0u);
+        return;
+    }
+    Profile_Storage_Info_t info;
+    const App_Control_Status_t status = prv_persistence_status(
+        App_Persistence_Save(&info));
+    prv_build_response(response, APP_CONTROL_OPCODE_SAVE_CONFIG, sequence,
+                       status, (status == APP_CONTROL_STATUS_OK) ? info.slot : 0u,
+                       (status == APP_CONTROL_STATUS_OK) ? info.config_crc : 0u);
+}
+
+static void prv_handle_load_saved(uint8_t sequence,
+                                  const uint8_t* data,
+                                  uint8_t* response)
+{
+    if (!prv_reserved_bytes_are_zero(data)) {
+        prv_build_response(response, APP_CONTROL_OPCODE_LOAD_SAVED_CONFIG,
+                           sequence, APP_CONTROL_STATUS_BAD_ARGUMENT, 0u, 0u);
+        return;
+    }
+    uint16_t generation = 0u;
+    uint16_t count = 0u;
+    uint8_t pgn_count = 0u;
+    const App_Control_Status_t status = prv_persistence_status(
+        App_Persistence_Load(&generation, &count, &pgn_count));
+    prv_build_response(response, APP_CONTROL_OPCODE_LOAD_SAVED_CONFIG, sequence,
+                       status, (status == APP_CONTROL_STATUS_OK) ? pgn_count : 0u,
+                       (status == APP_CONTROL_STATUS_OK)
+                           ? ((uint32_t)generation | ((uint32_t)count << 16))
+                           : 0u);
+}
+
+static void prv_handle_erase_saved(uint8_t sequence,
+                                   const uint8_t* data,
+                                   uint8_t* response)
+{
+    if (!prv_reserved_bytes_are_zero(data)) {
+        prv_build_response(response, APP_CONTROL_OPCODE_ERASE_SAVED_CONFIG,
+                           sequence, APP_CONTROL_STATUS_BAD_ARGUMENT, 0u, 0u);
+        return;
+    }
+    const App_Control_Status_t status = prv_persistence_status(
+        App_Persistence_Erase());
+    prv_build_response(response, APP_CONTROL_OPCODE_ERASE_SAVED_CONFIG,
+                       sequence, status, 0u, 0u);
+}
+
+static void prv_handle_set_autostart(uint8_t sequence,
+                                     const uint8_t* data,
+                                     uint8_t* response)
+{
+    if ((data[2] > 1u) || !prv_bytes_are_zero_from(data, 3u)) {
+        prv_build_response(response, APP_CONTROL_OPCODE_SET_AUTOSTART, sequence,
+                           APP_CONTROL_STATUS_BAD_ARGUMENT, 0u, 0u);
+        return;
+    }
+    Profile_Storage_Info_t info;
+    const App_Control_Status_t status = prv_persistence_status(
+        App_Persistence_Set_Autostart(data[2] != 0u, &info));
+    prv_build_response(response, APP_CONTROL_OPCODE_SET_AUTOSTART, sequence,
+                       status, (status == APP_CONTROL_STATUS_OK) ? data[2] : 0u,
+                       (status == APP_CONTROL_STATUS_OK) ? info.sequence : 0u);
 }
 
 static void prv_handle_control_frame(const J1939_Frame_Header_t* header,
@@ -427,6 +838,39 @@ static void prv_handle_control_frame(const J1939_Frame_Header_t* header,
         case APP_CONTROL_OPCODE_SET_CONST:
             prv_handle_set_const(sequence, data, response);
             break;
+        case APP_CONTROL_OPCODE_BEGIN_CONFIG:
+            prv_handle_begin_config(sequence, data, response);
+            break;
+        case APP_CONTROL_OPCODE_SET_SIGNAL_RAW:
+            prv_handle_set_signal_raw(sequence, data, response);
+            break;
+        case APP_CONTROL_OPCODE_COMMIT_CONFIG:
+            prv_handle_commit_config(sequence, data, response);
+            break;
+        case APP_CONTROL_OPCODE_ABORT_CONFIG:
+            prv_handle_abort_config(sequence, data, response);
+            break;
+        case APP_CONTROL_OPCODE_WRITE_BLOB:
+            prv_handle_write_blob(sequence, data, response);
+            break;
+        case APP_CONTROL_OPCODE_SET_STRING:
+            prv_handle_set_string(sequence, data, response);
+            break;
+        case APP_CONTROL_OPCODE_SET_GLOBAL_PERCENT:
+            prv_handle_set_global_percent(sequence, data, response);
+            break;
+        case APP_CONTROL_OPCODE_SAVE_CONFIG:
+            prv_handle_save_config(sequence, data, response);
+            break;
+        case APP_CONTROL_OPCODE_LOAD_SAVED_CONFIG:
+            prv_handle_load_saved(sequence, data, response);
+            break;
+        case APP_CONTROL_OPCODE_ERASE_SAVED_CONFIG:
+            prv_handle_erase_saved(sequence, data, response);
+            break;
+        case APP_CONTROL_OPCODE_SET_AUTOSTART:
+            prv_handle_set_autostart(sequence, data, response);
+            break;
         case APP_CONTROL_OPCODE_START:
             prv_handle_start(sequence, data, response);
             break;
@@ -452,6 +896,7 @@ void App_Control_Can_Init(void)
     s_tx_queue_head = 0u;
     s_tx_queue_count = 0u;
     s_tx_retry_not_before_ms = 0u;
+    App_Persistence_Init();
     J1939_Rx_Router_Set_Control_Handler(prv_handle_control_frame);
 }
 

@@ -2,7 +2,8 @@
  * =============================================================================
  * FILE : j1939_tx_scheduler.h
  * WHAT : Groups active SPNs into PGNs and broadcasts each PGN on its period.
- *        Values come from the pattern generator, frames go out via j1939_link.
+ *        Constant values are packed raw from j1939_value_store; waveform
+ *        values come from the pattern pool. Frames go out via j1939_link.
  * =============================================================================
  */
 
@@ -15,13 +16,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "j1939_signal_definitions.h"
 #include "j1939_pattern_generator.h"
-
-#define J1939_SCHED_MAX_SIGNALS  PATTERN_GEN_MAX_SIGNALS
-#ifndef J1939_SCHED_MAX_PGNS
-#define J1939_SCHED_MAX_PGNS     11u
-#endif
 
 #define J1939_TX_QUEUE_CAPACITY  32u
 
@@ -32,20 +27,13 @@ typedef enum {
 } J1939_Sched_Mode_t;
 
 typedef struct {
-    J1939_Signal_Id_t signal_id;
-    const J1939_Signal_Definition_t* def;
-    uint32_t timeframe_ms;          /* 0 = use PGN period of current mode */
-    float    t_start;
-    float    t_dur;
-} J1939_Sched_Signal_t;
-
-typedef struct {
     uint16_t enqueued;              /* Due frames accepted by the SW queue */
     uint16_t sent;                  /* Frames handed to a hardware mailbox */
     uint16_t busy;                  /* Queue drain paused: all HW mailboxes busy */
     uint16_t failed;                /* Driver errors; frame retained for retry */
     uint16_t dropped;               /* SW queue full */
     uint16_t deadline_missed;       /* One or more periods were skipped */
+    uint16_t expired;               /* Queued frame superseded before send */
 } J1939_Sched_Tick_Result_t;
 
 typedef struct {
@@ -55,6 +43,7 @@ typedef struct {
     uint32_t failed;
     uint32_t dropped;
     uint32_t deadline_missed;
+    uint32_t expired;
     uint8_t queued;
     uint8_t high_water;
 } J1939_Sched_Stats_t;
@@ -62,12 +51,12 @@ typedef struct {
 /* =============================================================================
  * DEBUG WATCH - read it live with a debugger (Live Watch / ST-LINK memory view).
  * Follows one signal from physical value to the bytes handed to the CAN
- * controller. Write watch_signal_id from the debugger to follow another
- * unique database signal.
+ * controller. Write watch_catalog_index from the debugger to follow another
+ * generated catalog signal.
  * ============================================================================= */
 typedef struct {
-    J1939_Signal_Id_t watch_signal_id; /* Defaults to Engine Speed database index */
-    float    value;             /* Physical value encoded for watch_signal_id */
+    uint16_t watch_catalog_index; /* Defaults to Engine Speed catalog index */
+    float    value;             /* Physical value encoded for watched signal */
     float    decoded;           /* Value decoded back from the payload (round-trip check) */
     uint32_t can_id;            /* 29-bit ID of the frame that carried it */
     uint8_t  data[8];           /* Payload exactly as handed to the CAN controller */
@@ -83,28 +72,30 @@ extern volatile J1939_Debug_Watch_t g_j1939_dbg;
 /* Remove all signals and PGNs */
 void J1939_Sched_Clear(void);
 
-/* Add or update a signal; its PGN is tracked automatically.
- * A non-zero timeframe_ms overrides the PGN period if it is faster. */
-bool J1939_Sched_Add_Signal(const J1939_Signal_Definition_t* def,
-                            uint32_t timeframe_ms,
-                            float t_start,
-                            float t_dur,
-                            uint32_t now_ms);
+/* Native Phase-3 API. Only the owning PGN is stored; signal metadata is read
+ * directly from its contiguous generated-catalog range. timeframe_ms is kept
+ * for protocol compatibility, but generated approved timing is authoritative. */
+bool J1939_Sched_Can_Add_Catalog_Signal(uint16_t catalog_index);
 
-/* Read-only admission check used to keep APP registration atomic. */
-bool J1939_Sched_Can_Add_Signal(const J1939_Signal_Definition_t* def);
+/* True when the PGN self-transmits (periodic, event fallback or approved
+ * On-Request broadcast; single frame or BAM). */
+bool J1939_Sched_Pgn_Is_Schedulable(uint8_t catalog_pgn_index);
+bool J1939_Sched_Add_Catalog_Signal(uint16_t catalog_index,
+                                    uint32_t timeframe_ms,
+                                    uint32_t now_ms);
 
 void J1939_Sched_Set_Mode(J1939_Sched_Mode_t mode);
 J1939_Sched_Mode_t J1939_Sched_Get_Mode(void);
 
-/* Restart all PGN period timers from now_ms */
+/* Restart all PGN period timers from now_ms and discard queued frames */
 void J1939_Sched_Reset_Timers(uint32_t now_ms);
 
 /* Encode and transmit every PGN whose period has elapsed */
 void J1939_Sched_Tick(uint32_t now_ms, J1939_Sched_Tick_Result_t* result);
 
-uint8_t J1939_Sched_Get_Signal_Count(void);
-const J1939_Sched_Signal_t* J1939_Sched_Get_Signal(uint8_t index);
+uint16_t J1939_Sched_Get_Signal_Count(void);
+bool J1939_Sched_Get_Active_Catalog_Index(uint16_t ordinal,
+                                          uint16_t* out_catalog_index);
 uint8_t J1939_Sched_Get_PGN_Count(void);
 void J1939_Sched_Get_Stats(J1939_Sched_Stats_t* stats);
 

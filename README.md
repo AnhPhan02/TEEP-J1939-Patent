@@ -97,25 +97,38 @@ make flash      # ST-LINK_CLI over SWD, verify, reset
 make clean
 ```
 
-The default build is the production TSMaster P3-A profile: serial CLI disabled,
-standalone auto-start disabled, and capacity for 40 simultaneous signals /
-11 PGNs. Feature and capacity values can be overridden on the make command
-line; run `make clean` before switching them because make does not track CFLAGS
-changes:
+The default build is the validated production TSMaster P3-A profile: serial CLI
+disabled, standalone auto-start disabled, and capacity for 40 simultaneous
+signals / 11 PGNs. An experimental 100-signal / 60-PGN capacity build is kept
+in a separate output directory so it cannot reuse the production profile's
+objects:
 
 ```sh
 make clean
 make APP_CLI_ENABLE=1                     # development/service CLI
 make APP_BOOT_AUTOSTART_DEFAULTS=1        # standalone demonstration
-make PATTERN_GEN_MAX_SIGNALS=100 J1939_SCHED_MAX_PGNS=60
+make ENABLE_100_SPNS=1                    # build/profile-100/*experimental*
 ```
+
+`ENABLE_100_SPNS=1` reserves runtime slots only. It does **not** mean that 100
+signals are functionally supported: the stable UI key map and timing table are
+not complete, the current control protocol cannot select every catalog entry,
+and Request/TP support is still missing. The validated 40-SPN behavior remains
+the default. A 176-signal capacity profile is intentionally not provided because
+the current pattern and scheduler structures exceed the 20 KiB SRAM budget at
+that scale; complete the resource-redesign phase first.
 
 Measured with GCC 15.3.1 and the current source:
 
 | Profile | Flash (`text + data`) | RAM (`data + bss`, including reserved heap/stack) |
 |---|---:|---:|
-| Production UI, CLI off, capacity 40/11 | 36,384 B / 64 KiB | 9,184 B / 20 KiB |
-| Diagnostic CLI, capacity 8/8 | 53,196 B / 64 KiB | 4,872 B / 20 KiB |
+| Production UI, CLI off, capacity 40/11 | 36,788 B / 64 KiB | 9,256 B / 20 KiB |
+| Experimental capacity 100/60 | 36,788 B / 64 KiB | 16,712 B / 20 KiB |
+
+The linker reports 36,792 B Flash for these images because of four bytes of
+section alignment. The 100/60 build uses 81.6% of SRAM and leaves 3,768 B,
+including no additional allowance for TP payload/session buffers. It is useful
+for measurement and incremental development, but it is not a release profile.
 
 ## Pending / next steps
 

@@ -14,12 +14,11 @@ extern "C" {
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "j1939_build_profile.h"
 #include "j1939_signal_definitions.h"
 
-/* Phase P3-A capacity: the UI may configure all 40 single-frame signals. */
-#ifndef PATTERN_GEN_MAX_SIGNALS
-#define PATTERN_GEN_MAX_SIGNALS  40u
-#endif
+/* Pool capacity J1939_WAVEFORM_POOL_CAPACITY is selected by
+ * j1939_build_profile.h; only waveform (non-constant) signals use it. */
 
 /* =============================================================================
  * PATTERN TYPE ENUM
@@ -39,7 +38,7 @@ typedef enum {
  * PATTERN CONFIGURATION STRUCT
  * ============================================================================= */
 typedef struct {
-    J1939_Signal_Id_t signal_id;            /* Unique database index this pattern drives */
+    uint16_t catalog_index;                  /* Unique generated catalog record */
     Pattern_Type_t  pattern_type;           /* Type of pattern */
     
     /* Range limits (apply to all patterns) */
@@ -82,6 +81,7 @@ typedef struct {
 /* =============================================================================
  * PUBLIC API
  * ============================================================================= */
+#if ENABLE_WAVEFORM
 
 /* Initialize the generator system */
 void Pattern_Generator_Init(uint32_t sim_start_time_ms);
@@ -90,17 +90,25 @@ void Pattern_Generator_Init(uint32_t sim_start_time_ms);
 bool Pattern_Generator_Register(const Pattern_Config_t* config);
 
 /* Read-only admission check used to keep APP registration atomic. */
-bool Pattern_Generator_Can_Register(J1939_Signal_Id_t signal_id);
+bool Pattern_Generator_Can_Register(uint16_t catalog_index);
+
+/* Remove a signal from the waveform pool; false if it was not registered. */
+bool Pattern_Generator_Unregister(uint16_t catalog_index);
+bool Pattern_Generator_Is_Registered(uint16_t catalog_index);
+
+/* Enumerate the compact catalog identities in the waveform pool. */
+bool Pattern_Generator_Get_Catalog_Index(uint8_t ordinal,
+                                         uint16_t* out_catalog_index);
 
 /* Update all registered patterns (call every 1ms from main loop) */
 void Pattern_Generator_Update(uint32_t current_time_ms);
 
-/* Get current value for one unique database signal */
-float Pattern_Generator_Get_Value(J1939_Signal_Id_t signal_id,
+/* Get current value for one unique catalog signal. */
+float Pattern_Generator_Get_Value(uint16_t catalog_index,
                                   float default_value);
 
-/* Get instantaneous mathematically continuous value for one database signal */
-float Pattern_Generator_Get_Value_Instant(J1939_Signal_Id_t signal_id,
+/* Get instantaneous mathematically continuous value for one catalog signal. */
+float Pattern_Generator_Get_Value_Instant(uint16_t catalog_index,
                                           uint32_t current_time_ms,
                                           float default_value);
 
@@ -115,6 +123,38 @@ uint8_t Pattern_Generator_Get_Count(void);
 
 /* Check if any pattern is currently active */
 bool Pattern_Generator_Is_Running(void);
+
+#else /* !ENABLE_WAVEFORM: constant-only build, empty waveform pool */
+
+static inline void Pattern_Generator_Init(uint32_t sim_start_time_ms)
+{ (void)sim_start_time_ms; }
+static inline bool Pattern_Generator_Register(const Pattern_Config_t* config)
+{ (void)config; return false; }
+static inline bool Pattern_Generator_Can_Register(uint16_t catalog_index)
+{ (void)catalog_index; return false; }
+static inline bool Pattern_Generator_Unregister(uint16_t catalog_index)
+{ (void)catalog_index; return false; }
+static inline bool Pattern_Generator_Is_Registered(uint16_t catalog_index)
+{ (void)catalog_index; return false; }
+static inline bool Pattern_Generator_Get_Catalog_Index(uint8_t ordinal,
+                                                       uint16_t* out_catalog_index)
+{ (void)ordinal; (void)out_catalog_index; return false; }
+static inline void Pattern_Generator_Update(uint32_t current_time_ms)
+{ (void)current_time_ms; }
+static inline float Pattern_Generator_Get_Value(uint16_t catalog_index,
+                                                float default_value)
+{ (void)catalog_index; return default_value; }
+static inline float Pattern_Generator_Get_Value_Instant(uint16_t catalog_index,
+                                                        uint32_t current_time_ms,
+                                                        float default_value)
+{ (void)catalog_index; (void)current_time_ms; return default_value; }
+static inline void Pattern_Generator_Reset(uint32_t current_time_ms)
+{ (void)current_time_ms; }
+static inline void Pattern_Generator_Stop(void) {}
+static inline uint8_t Pattern_Generator_Get_Count(void) { return 0u; }
+static inline bool Pattern_Generator_Is_Running(void) { return false; }
+
+#endif /* ENABLE_WAVEFORM */
 
 #ifdef __cplusplus
 }

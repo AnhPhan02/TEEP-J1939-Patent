@@ -25,9 +25,68 @@ extern "C" {
 #define APP_CONTROL_OPCODE_GET_STATUS    0x04u
 #define APP_CONTROL_OPCODE_CLEAR_CONFIG  0x05u
 #define APP_CONTROL_OPCODE_SET_CONST     0x10u
+#define APP_CONTROL_OPCODE_BEGIN_CONFIG  0x11u
+#define APP_CONTROL_OPCODE_SET_SIGNAL_RAW 0x12u
+#define APP_CONTROL_OPCODE_COMMIT_CONFIG 0x13u
+#define APP_CONTROL_OPCODE_ABORT_CONFIG  0x14u
+#define APP_CONTROL_OPCODE_WRITE_BLOB    0x15u
+#define APP_CONTROL_OPCODE_SET_GLOBAL_PERCENT 0x16u
+#define APP_CONTROL_OPCODE_SET_STRING    0x17u
+#define APP_CONTROL_OPCODE_SAVE_CONFIG   0x18u
+#define APP_CONTROL_OPCODE_LOAD_SAVED_CONFIG 0x19u
+#define APP_CONTROL_OPCODE_ERASE_SAVED_CONFIG 0x1Au
+#define APP_CONTROL_OPCODE_SET_AUTOSTART 0x1Bu
 
-#define APP_CONTROL_PROTOCOL_MAJOR       1u
-#define APP_CONTROL_PROTOCOL_MINOR       1u
+/* Request layouts (all little-endian, all frames exactly 8 bytes):
+ * BEGIN_CONFIG  [op, seq, catalog_crc32, expected_scalar_u8, profile_blob_u8]
+ *               profile_blob bit 0 = expected blob count (0..1); bits 1..7
+ *               are 0 for custom/legacy or generated profile_id + 1.
+ * SET_SIGNAL_RAW[op, seq, signal_key_u16, raw_value_u32]
+ * WRITE_BLOB    [op, seq, signal_key_u8, total_length_u8, offset_u8, data[3]]
+ *               payload bytes = min(3, total_length - offset); unused data
+ *               bytes must be zero. The first chunk fixes total_length.
+ * SET_STRING    same layout as WRITE_BLOB for an ASCII string record (VIN,
+ *               key 3): chars 0x20..0x7E except '*', 1..20 chars; firmware
+ *               broadcasts text + '*' + 0xFF padding as a 21-byte BAM.
+ * SET_GLOBAL_PERCENT [op, seq, percentage_bp_u16 (0..10000), reserved_zero[4]]
+ * SET_AUTOSTART [op, seq, enabled_u8 (0/1), reserved_zero[5]]
+ * SAVE/LOAD/ERASE [op, seq, reserved_zero[6]]
+ * COMMIT/ABORT  [op, seq, reserved_zero[6]]
+ * GET_STATUS    [op, seq, page, reserved_zero[5]]
+ *
+ * Responses [op|0x80, seq, status, detail, value_u32]:
+ * COMMIT        detail=active PGN count, value[15:0]=generation,
+ *               value[31:16]=active signal count (scalars + blobs)
+ * WRITE_BLOB/SET_STRING detail=total_length,
+ *               value=distinct blob bytes staged so far
+ * SET_GLOBAL_PERCENT detail=excluded active-record count,
+ *               value[15:0]=generation, value[31:16]=affected record count
+ * GET_STATUS page 0 protocol: value = major, minor, schema, capability mask
+ *            page 1 runtime:  value[15:0] generation, [23:16] signal count,
+ *                             [31:24] PGN count
+ *            page 2 config:   value = active configuration CRC32
+ *                             (algorithm in j1939_value_store.h)
+ *            page 3 limits:   value = max signals u8, max PGNs u8, waveform
+ *                             pool u8, max blob bytes u8; detail = features
+ *            page 4 profile:  value bytes = profile ID, required/active signal
+ *                             count, PGN count, baseline load at 500k in 0.1%;
+ *                             detail = J1939_PROFILE_FLAG_* (custom load=0xFF)
+ *            page 5 storage:  value=stored config CRC; detail=storage flags
+ *            page 6 stored sequence: value=sequence; detail=stored profile ID
+ *            page 7 storage metadata: value[15:0]=signal count,
+ *                             value[31:16]=bitrate kbit/s; detail=last error
+ *            page 8 boot:     detail = reset cause (hal_reset_cause_t);
+ *                             value bytes = boot result (App_Boot_Result_t),
+ *                             load status (App_Persistence_Status_t),
+ *                             autostart state (App_Autostart_State_t),
+ *                             consecutive watchdog resets before this boot
+ *            page 9 link:     detail = APP_CONTROL_BUS_* flags; value[15:0]
+ *                             = bus recoveries (passive/bus-off -> OK),
+ *                             [23:16] TEC, [31:24] REC
+ * Every page carries APP_CONTROL_RUNTIME_* flags in detail except pages 3..9. */
+
+#define APP_CONTROL_PROTOCOL_MAJOR       2u
+#define APP_CONTROL_PROTOCOL_MINOR       5u
 #define APP_CONTROL_SCHEMA_VERSION       1u
 
 #define APP_CONTROL_CAPABILITY_STOP          (1u << 0)
@@ -36,16 +95,66 @@ extern "C" {
 #define APP_CONTROL_CAPABILITY_SET_CONST     (1u << 3)
 #define APP_CONTROL_CAPABILITY_START         (1u << 4)
 #define APP_CONTROL_CAPABILITY_CLEAR_CONFIG  (1u << 5)
+#define APP_CONTROL_CAPABILITY_CONFIG_TXN    (1u << 6)
+#define APP_CONTROL_CAPABILITY_RUNTIME_INFO  (1u << 7)
 #define APP_CONTROL_CAPABILITIES             \
     (APP_CONTROL_CAPABILITY_STOP |           \
      APP_CONTROL_CAPABILITY_GET_STATUS |     \
      APP_CONTROL_CAPABILITY_DEDUP_CACHE |    \
      APP_CONTROL_CAPABILITY_SET_CONST |      \
      APP_CONTROL_CAPABILITY_START |          \
-     APP_CONTROL_CAPABILITY_CLEAR_CONFIG)
+     APP_CONTROL_CAPABILITY_CLEAR_CONFIG |   \
+     APP_CONTROL_CAPABILITY_CONFIG_TXN |     \
+     APP_CONTROL_CAPABILITY_RUNTIME_INFO)
 
 #define APP_CONTROL_RUNTIME_RUNNING                  (1u << 0)
 #define APP_CONTROL_RUNTIME_ENGINE_SPEED_CONFIGURED  (1u << 1)
+#define APP_CONTROL_RUNTIME_TRANSACTION_OPEN         (1u << 2)
+#define APP_CONTROL_RUNTIME_TRANSACTION_REJECTED     (1u << 3)
+#define APP_CONTROL_RUNTIME_COMMITTED                 (1u << 4)
+
+#define APP_CONTROL_STATUS_PAGE_PROTOCOL              0u
+#define APP_CONTROL_STATUS_PAGE_RUNTIME               1u
+#define APP_CONTROL_STATUS_PAGE_CONFIG                2u
+#define APP_CONTROL_STATUS_PAGE_LIMITS                3u
+#define APP_CONTROL_STATUS_PAGE_PROFILE               4u
+#define APP_CONTROL_STATUS_PAGE_STORAGE               5u
+#define APP_CONTROL_STATUS_PAGE_STORAGE_SEQUENCE      6u
+#define APP_CONTROL_STATUS_PAGE_STORAGE_METADATA      7u
+#define APP_CONTROL_STATUS_PAGE_BOOT                  8u
+#define APP_CONTROL_STATUS_PAGE_LINK                  9u
+#define APP_CONTROL_STATUS_PAGE_LAST                  APP_CONTROL_STATUS_PAGE_LINK
+
+#define APP_CONTROL_STORAGE_VALID                     (1u << 0)
+#define APP_CONTROL_STORAGE_AUTOSTART                 (1u << 1)
+#define APP_CONTROL_STORAGE_DIRTY                     (1u << 2)
+#define APP_CONTROL_STORAGE_SLOT_B                    (1u << 3)
+
+#define APP_CONTROL_BUS_ERROR_WARNING                 (1u << 0)
+#define APP_CONTROL_BUS_ERROR_PASSIVE                 (1u << 1)
+#define APP_CONTROL_BUS_OFF                           (1u << 2)
+
+#define APP_CONTROL_BEGIN_BLOB_MASK                   0x01u
+#define APP_CONTROL_BEGIN_PROFILE_SHIFT               1u
+#define APP_CONTROL_BEGIN_PROFILE_SELECTOR_CUSTOM     0u
+
+/* GET_STATUS page 3 detail: protocol features beyond the page-0 mask. A clear
+ * bit means the firmware does not provide the feature yet. */
+#define APP_CONTROL_FEATURE_WRITE_BLOB        (1u << 0)
+#define APP_CONTROL_FEATURE_GLOBAL_PERCENT    (1u << 1)
+#define APP_CONTROL_FEATURE_CONFIG_CRC        (1u << 2)
+#define APP_CONTROL_FEATURE_SIGNAL_MODE       (1u << 3)
+#define APP_CONTROL_FEATURE_TRANSPORT_TP      (1u << 4)   /* BAM broadcast TX */
+#define APP_CONTROL_FEATURE_PERSISTENCE       (1u << 5)
+#define APP_CONTROL_FEATURE_REQUEST_PGN       (1u << 6)
+#define APP_CONTROL_FEATURE_CUSTOMER_PROFILES (1u << 7)
+#define APP_CONTROL_FEATURES                  \
+    (APP_CONTROL_FEATURE_WRITE_BLOB |         \
+     APP_CONTROL_FEATURE_GLOBAL_PERCENT |     \
+     APP_CONTROL_FEATURE_CONFIG_CRC |         \
+     APP_CONTROL_FEATURE_TRANSPORT_TP |       \
+     APP_CONTROL_FEATURE_PERSISTENCE |        \
+     APP_CONTROL_FEATURE_CUSTOMER_PROFILES)
 
 /* GET_STATUS response: detail = APP_CONTROL_RUNTIME_* flags. The LE value32
  * bytes are protocol major, protocol minor, schema and capability mask. */
@@ -65,7 +174,20 @@ typedef enum {
     APP_CONTROL_STATUS_VALUE_OUT_OF_RANGE = 6,
     APP_CONTROL_STATUS_INVALID_STATE = 7,
     APP_CONTROL_STATUS_BUSY = 8,
-    APP_CONTROL_STATUS_DUPLICATE_CONFLICT = 9
+    APP_CONTROL_STATUS_DUPLICATE_CONFLICT = 9,
+    APP_CONTROL_STATUS_TRANSACTION_REJECTED = 10,
+    APP_CONTROL_STATUS_COUNT_MISMATCH = 11,
+    APP_CONTROL_STATUS_RESOURCE_FULL = 12,
+    APP_CONTROL_STATUS_CATALOG_MISMATCH = 13,
+    APP_CONTROL_STATUS_INTERNAL_ERROR = 14,
+    APP_CONTROL_STATUS_BLOB_INCOMPLETE = 15,
+    APP_CONTROL_STATUS_UNKNOWN_PROFILE = 16,
+    APP_CONTROL_STATUS_PROFILE_KEY_NOT_ALLOWED = 17,
+    APP_CONTROL_STATUS_PROFILE_MISMATCH = 18,
+    APP_CONTROL_STATUS_STORAGE_EMPTY = 19,
+    APP_CONTROL_STATUS_STORAGE_INVALID = 20,
+    APP_CONTROL_STATUS_STORAGE_ERROR = 21,
+    APP_CONTROL_STATUS_STORAGE_UNSUPPORTED = 22
 } App_Control_Status_t;
 
 typedef struct {
