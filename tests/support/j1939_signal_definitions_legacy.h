@@ -1,0 +1,184 @@
+/*
+ * =============================================================================
+ * FILE : j1939_signal_definitions_legacy.h
+ * WHAT : Legacy compatibility types/constants and host-test reference API.
+ *        Shared types (J1939_Signal_Definition_t, J1939_Transmission_Mode_t,
+ *        J1939_Signal_Key_t) and canonical PGN_* numbers come from the
+ *        firmware database MID/j1939_signal_definitions.h.
+ * SOURCE: doc/J1939_179_SPN_Master_Specification_Table.xlsx,
+ *         sheet "Master 179 SPN Database", rows 6-184.
+ * =============================================================================
+ */
+
+#ifndef J1939_SIGNAL_DEFINITIONS_LEGACY_H
+#define J1939_SIGNAL_DEFINITIONS_LEGACY_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdint.h>
+#include <stdbool.h>
+#include "j1939_signal_definitions.h"
+
+#define J1939_SIGNAL_COUNT_EXPECTED       179u
+#define J1939_TX_PERIOD_NOT_FIXED_MS      0u
+
+/* Backward-compatible PGN aliases used by the existing firmware modules. */
+#define PGN_ENGINE_TEMP1       PGN_ET1
+#define PGN_ENGINE_FLUIDS1     PGN_EFL_P1
+#define PGN_ENGINE_FLUIDS2     PGN_IC1
+#define PGN_VDS                PGN_VDC2
+#define PGN_TRANS_FLUIDS1      65272u
+#define PGN_BRAKE_AIR_PRESS    PGN_B
+#define PGN_AT1_SCR_DOSING     61475u
+#define PGN_AT1_SCR_TANK       PGN_TI1
+#define PGN_DPF_TEMP1          64947u
+#define PGN_VOLTS_AMPS         PGN_VEP
+#define PGN_FAN_DRIVE          PGN_FD
+#define PGN_DASH               PGN_DD
+#define PGN_TIME_DATE          PGN_TD
+#define PGN_TURBO1             PGN_IMT1
+#define PGN_WATER_IN_FUEL      65279u
+
+/* Legacy SPN names retained for source compatibility. */
+#define SPN_ENGINE_TORQUE_MODE         899u
+#define SPN_DRIVER_DEMAND_TORQUE       512u
+#define SPN_ACTUAL_ENGINE_TORQUE       513u
+#define SPN_ENGINE_SPEED               190u
+#define SPN_ENGINE_DEMAND_TORQUE       2432u
+#define SPN_ACCEL_PEDAL_POS            91u
+#define SPN_ENGINE_LOAD_PCT            92u
+#define SPN_COOLANT_TEMP               110u
+#define SPN_ENGINE_OIL_TEMP            175u
+#define SPN_ENGINE_OIL_LEVEL           98u
+#define SPN_ENGINE_OIL_PRESSURE        100u
+#define SPN_VEHICLE_SPEED              84u
+#define SPN_STEERING_ANGLE             1807u
+#define SPN_YAW_RATE                   1808u
+#define SPN_LATERAL_ACCEL              1809u
+#define SPN_LONG_ACCEL                 1810u
+#define SPN_TRANS_GEAR                 523u
+#define SPN_TRANS_OIL_PRESSURE         127u
+#define SPN_TRANS_OIL_TEMP             177u
+#define SPN_BRAKE_PEDAL_POS            521u
+#define SPN_BRAKE_APP_PRESSURE         116u
+#define SPN_RETARDER_TORQUE            520u
+#define SPN_SCR_DOSING_RATE            4331u
+#define SPN_SCR_TANK_LEVEL             1761u
+#define SPN_SCR_TANK_TEMP              3031u
+#define SPN_DPF_INLET_TEMP             3250u
+#define SPN_DPF_OUTLET_TEMP            3246u
+#define SPN_BARO_PRESSURE              108u
+#define SPN_CAB_TEMP                   170u
+#define SPN_AMBIENT_TEMP               171u
+#define SPN_AIR_INLET_TEMP             172u
+#define SPN_ROAD_SURFACE_TEMP          79u
+#define SPN_ALTERNATOR_CURRENT         115u
+#define SPN_BATTERY_VOLTAGE            167u
+#define SPN_BATTERY_POTENTIAL          168u
+#define SPN_FAN_DRIVE_PCT              1639u
+#define SPN_FAN_SPEED                  975u
+#define SPN_WASHER_FLUID_LEVEL         80u
+#define SPN_FUEL_LEVEL                 96u
+#define SPN_SECONDS                    959u
+#define SPN_MINUTES                    960u
+#define SPN_HOURS                      961u
+#define SPN_MONTH                      963u
+#define SPN_DAY                        962u
+#define SPN_YEAR                       964u
+#define SPN_TURBO_BOOST_PRESS          1127u
+#define SPN_TURBO_SPEED                103u
+#define SPN_WATER_IN_FUEL_FLAG         97u
+#define SPN_INTAKE_MANIFOLD_PRESSURE   102u
+#define SPN_ENGINE_FUEL_RATE           183u
+#define SPN_ENGINE_INST_FUEL_ECON      184u
+#define SPN_ENGINE_AVG_FUEL_ECON       185u
+
+/* Runtime identity is the signal's database index. Unlike SPN, it is unique
+ * even when the same SPN legitimately appears in more than one PGN. */
+typedef uint16_t J1939_Signal_Id_t;
+
+#define J1939_SIGNAL_ID_INVALID              ((J1939_Signal_Id_t)0xFFFFu)
+
+/* Stable UI keys are the 1-based row numbers in the master workbook. They are
+ * protocol identifiers, not SPN numbers and not indexes in the sorted C
+ * database. */
+#define J1939_SIGNAL_KEY_VDC2_STEERING_ANGLE       ((J1939_Signal_Key_t)12u)
+#define J1939_SIGNAL_KEY_VDC2_YAW_RATE             ((J1939_Signal_Key_t)13u)
+#define J1939_SIGNAL_KEY_VDC2_LATERAL_ACCEL        ((J1939_Signal_Key_t)14u)
+#define J1939_SIGNAL_KEY_VDC2_LONG_ACCEL           ((J1939_Signal_Key_t)15u)
+#define J1939_SIGNAL_KEY_TCO1_DRIVER1_STATE        ((J1939_Signal_Key_t)24u)
+#define J1939_SIGNAL_KEY_TCO1_OVERSPEED            ((J1939_Signal_Key_t)25u)
+#define J1939_SIGNAL_KEY_TCO1_DRIVER2_STATE        ((J1939_Signal_Key_t)26u)
+#define J1939_SIGNAL_KEY_TCO1_SYSTEM_EVENT         ((J1939_Signal_Key_t)27u)
+#define J1939_SIGNAL_KEY_TCO1_HANDLING_INFO        ((J1939_Signal_Key_t)28u)
+#define J1939_SIGNAL_KEY_TCO1_PERFORMANCE          ((J1939_Signal_Key_t)29u)
+#define J1939_SIGNAL_KEY_TCO1_DIRECTION            ((J1939_Signal_Key_t)30u)
+#define J1939_SIGNAL_KEY_TCO1_OUTPUT_SHAFT_SPEED   ((J1939_Signal_Key_t)31u)
+#define J1939_SIGNAL_KEY_TCO1_VEHICLE_SPEED        ((J1939_Signal_Key_t)32u)
+#define J1939_SIGNAL_KEY_PTODE_ENGAGED             ((J1939_Signal_Key_t)38u)
+#define J1939_SIGNAL_KEY_HRW_FRONT_LEFT_SPEED      ((J1939_Signal_Key_t)59u)
+#define J1939_SIGNAL_KEY_HRW_FRONT_RIGHT_SPEED     ((J1939_Signal_Key_t)60u)
+#define J1939_SIGNAL_KEY_HRW_REAR_LEFT_SPEED       ((J1939_Signal_Key_t)61u)
+#define J1939_SIGNAL_KEY_HRW_REAR_RIGHT_SPEED      ((J1939_Signal_Key_t)62u)
+#define J1939_SIGNAL_KEY_FLI2_RIGHT_STATUS         ((J1939_Signal_Key_t)67u)
+#define J1939_SIGNAL_KEY_FLI2_LEFT_STATUS          ((J1939_Signal_Key_t)68u)
+#define J1939_SIGNAL_KEY_ETC1_SHIFT_IN_PROCESS     ((J1939_Signal_Key_t)74u)
+#define J1939_SIGNAL_KEY_ETC1_CLUTCH_SLIP          ((J1939_Signal_Key_t)75u)
+#define J1939_SIGNAL_KEY_EAC2_AXLE_LOCATION        ((J1939_Signal_Key_t)83u)
+#define J1939_SIGNAL_KEY_ERC1_TORQUE_MODE          ((J1939_Signal_Key_t)84u)
+#define J1939_SIGNAL_KEY_ERC1_ACTUAL_TORQUE        ((J1939_Signal_Key_t)85u)
+#define J1939_SIGNAL_KEY_ERC1_DRIVER_DEMAND        ((J1939_Signal_Key_t)86u)
+#define J1939_SIGNAL_KEY_ERC1_MAX_TORQUE           ((J1939_Signal_Key_t)87u)
+#define J1939_SIGNAL_KEY_EEC2_LOW_IDLE_SWITCH      ((J1939_Signal_Key_t)94u)
+#define J1939_SIGNAL_KEY_EEC2_KICKDOWN_SWITCH      ((J1939_Signal_Key_t)95u)
+#define J1939_SIGNAL_KEY_EEC2_SPEED_LIMIT_STATUS   ((J1939_Signal_Key_t)96u)
+#define J1939_SIGNAL_KEY_ACCEL_PEDAL_POS           ((J1939_Signal_Key_t)97u)
+#define J1939_SIGNAL_KEY_EEC2_ENGINE_LOAD          ((J1939_Signal_Key_t)98u)
+#define J1939_SIGNAL_KEY_EEC2_ACCEL_PEDAL_POS2     ((J1939_Signal_Key_t)99u)
+#define J1939_SIGNAL_KEY_ENGINE_SPEED               ((J1939_Signal_Key_t)103u)
+#define J1939_SIGNAL_KEY_EBS11_ABS_ACTIVE          ((J1939_Signal_Key_t)113u)
+#define J1939_SIGNAL_KEY_EBS11_BRAKE_LIGHT         ((J1939_Signal_Key_t)114u)
+#define J1939_SIGNAL_KEY_EBC1_ABS_ACTIVE           ((J1939_Signal_Key_t)122u)
+#define J1939_SIGNAL_KEY_EBC1_BRAKE_SWITCH         ((J1939_Signal_Key_t)123u)
+#define J1939_SIGNAL_KEY_EBC1_PEDAL_POSITION       ((J1939_Signal_Key_t)124u)
+#define J1939_SIGNAL_KEY_EBC1_CONTROLLER_SA        ((J1939_Signal_Key_t)125u)
+#define J1939_SIGNAL_KEY_EBC1_HALT_BRAKE           ((J1939_Signal_Key_t)126u)
+#define J1939_SIGNAL_KEY_VEHICLE_SPEED              ((J1939_Signal_Key_t)144u)
+
+#define J1939_UI_PROFILE_40_SIGNAL_COUNT      40u
+
+extern const J1939_Signal_Definition_t J1939_Signal_Database[];
+extern const uint16_t J1939_Signal_Count;
+extern const uint16_t J1939_Periodic_Signal_Count;
+extern const uint16_t J1939_Event_Signal_Count;
+extern const uint16_t J1939_On_Request_Signal_Count;
+extern const J1939_Signal_Key_t J1939_UI_Profile_40_Keys[];
+extern const uint16_t J1939_UI_Profile_40_Key_Count;
+
+/* SPN-only lookup returns the first match. Use the PGN+SPN lookup for SPNs
+ * that legitimately occur in more than one PGN (currently 928 and 1807). */
+const J1939_Signal_Definition_t* J1939_Find_Signal_By_SPN(uint32_t spn_number);
+/* Returns a definition only when the SPN has exactly one database entry.
+ * match_count may be NULL; otherwise it receives 0, 1, or the duplicate count. */
+const J1939_Signal_Definition_t* J1939_Find_Unique_Signal_By_SPN(
+    uint32_t spn_number,
+    uint16_t* match_count);
+const J1939_Signal_Definition_t* J1939_Find_Signal_By_PGN_SPN(uint32_t pgn,
+                                                              uint32_t spn_number);
+
+/* Unique runtime identity and stable UI-key mapping. */
+bool J1939_Get_Signal_Id(const J1939_Signal_Definition_t* signal_def,
+                         J1939_Signal_Id_t* signal_id);
+const J1939_Signal_Definition_t* J1939_Find_Signal_By_Id(
+    J1939_Signal_Id_t signal_id);
+const J1939_Signal_Definition_t* J1939_Find_Signal_By_Key(
+    J1939_Signal_Key_t signal_key);
+bool J1939_Get_Signal_Key(J1939_Signal_Id_t signal_id,
+                          J1939_Signal_Key_t* signal_key);
+
+#ifdef __cplusplus
+}
+#endif
+#endif /* J1939_SIGNAL_DEFINITIONS_LEGACY_H */

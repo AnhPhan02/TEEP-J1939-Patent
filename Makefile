@@ -160,39 +160,65 @@ catalog-test: catalog-check
 	$(PYTHON) -m unittest tests/test_generate_j1939_catalog.py
 	@mkdir -p $(dir $(CATALOG_TEST))
 	$(HOST_CC) $(HOST_CFLAGS) -Werror \
-		tests/test_j1939_catalog_generated.c $(GENERATED_C) $(LEGACY_C) \
+		tests/test_j1939_catalog_generated.c $(PROFILE_C) $(LEGACY_C) \
 		MID/j1939_signal_definitions.c MID/j1939_encode_decode.c \
 		-lm -o $(CATALOG_TEST)
 	$(CATALOG_TEST)
 
 host-test: catalog-test
 	$(HOST_CC) $(HOST_CFLAGS) -Werror tests/test_j1939_value_store.c \
-		MID/j1939_value_store.c MID/j1939_encode_decode.c MID/j1939_signal_definitions.c \
-		$(GENERATED_C) \
+		MID/j1939_value_store.c MID/j1939_crc32.c MID/j1939_encode_decode.c \
+		MID/j1939_signal_definitions.c \
 		-lm -o $(HOST_DIR)/test_j1939_value_store.exe
 	$(HOST_DIR)/test_j1939_value_store.exe
 	$(HOST_CC) $(HOST_CFLAGS) -Werror -DENABLE_179_SCALAR=1 \
-		tests/test_j1939_scheduler_phase3.c $(MID_NO_LINK) $(GENERATED_C) \
+		tests/test_j1939_scheduler_phase3.c $(MID_NO_LINK) \
 		-lm -o $(HOST_DIR)/test_j1939_scheduler_phase3.exe
 	$(HOST_DIR)/test_j1939_scheduler_phase3.exe
 	$(HOST_CC) $(HOST_CFLAGS) -Werror -DENABLE_179_SCALAR=1 \
-		tests/test_j1939_phase4a_transaction.c $(wildcard MID/*.c) \
-		APP/app_control_can.c APP/app_generator.c \
+		tests/test_j1939_phase4a_transaction.c $(MID_NO_STORAGE) \
+		APP/app_control_can.c APP/app_generator.c APP/app_boot.c $(PERSIST_STUB) \
 		-lm -o $(HOST_DIR)/test_j1939_phase4a_transaction.exe
 	$(HOST_DIR)/test_j1939_phase4a_transaction.exe
-	$(HOST_CC) $(HOST_CFLAGS) tests/test_j1939_r1_identity.c $(MID_NO_LINK) \
-		$(GENERATED_C) $(LEGACY_C) -lm -o $(HOST_DIR)/test_j1939_r1_identity.exe
+	$(HOST_CC) $(HOST_CFLAGS) -Werror -DENABLE_179_SCALAR=1 \
+		tests/test_j1939_phase4b_protocol.c $(MID_NO_STORAGE) \
+		APP/app_control_can.c APP/app_generator.c APP/app_boot.c $(PERSIST_STUB) \
+		-lm -o $(HOST_DIR)/test_j1939_phase4b_protocol.exe
+	$(HOST_DIR)/test_j1939_phase4b_protocol.exe
+	$(HOST_CC) $(HOST_CFLAGS) -Werror -DENABLE_179_SCALAR=1 \
+		tests/test_j1939_phase5_profiles.c $(MID_NO_STORAGE) \
+		APP/app_control_can.c APP/app_generator.c APP/app_boot.c $(PERSIST_STUB) \
+		-lm -o $(HOST_DIR)/test_j1939_phase5_profiles.exe
+	$(HOST_DIR)/test_j1939_phase5_profiles.exe
+	$(HOST_CC) $(HOST_CFLAGS) -Werror -DENABLE_179_SCALAR=1 \
+		tests/test_j1939_phase6_persistence.c tests/support/hal_flash_fake.c \
+		$(wildcard MID/*.c) APP/app_control_can.c APP/app_generator.c \
+		APP/app_persistence.c APP/app_boot.c -lm \
+		-o $(HOST_DIR)/test_j1939_phase6_persistence.exe
+	$(HOST_DIR)/test_j1939_phase6_persistence.exe
+	$(HOST_CC) $(HOST_CFLAGS) -Werror -DENABLE_179_SCALAR=1 -DOP_NO_MAIN \
+		-DAPP_BOOT_AUTOSTART_DEFAULTS=0 \
+		tests/test_j1939_phase7_autostart.c tests/support/hal_flash_fake.c \
+		$(wildcard MID/*.c) APP/app_control_can.c APP/app_generator.c \
+		APP/app_persistence.c APP/app_boot.c OP/op_main.c -lm \
+		-o $(HOST_DIR)/test_j1939_phase7_autostart.exe
+	$(HOST_DIR)/test_j1939_phase7_autostart.exe
+	$(HOST_CC) $(HOST_CFLAGS) -DENABLE_WAVEFORM=1 \
+		tests/test_j1939_r1_identity.c $(MID_NO_LINK) \
+		$(LEGACY_C) -lm -o $(HOST_DIR)/test_j1939_r1_identity.exe
 	$(HOST_DIR)/test_j1939_r1_identity.exe
 	$(HOST_CC) $(HOST_CFLAGS) tests/test_j1939_r2_control.c MID/j1939_frame.c \
 		MID/j1939_link.c MID/j1939_rx_router.c MID/j1939_signal_definitions.c \
-		APP/app_control_can.c -lm -o $(HOST_DIR)/test_j1939_r2_control.exe
+		MID/j1939_customer_profiles.c \
+		APP/app_control_can.c $(PERSIST_STUB) -lm -o $(HOST_DIR)/test_j1939_r2_control.exe
 	$(HOST_DIR)/test_j1939_r2_control.exe
 	$(HOST_CC) $(HOST_CFLAGS) tests/test_j1939_r3_set_const_start.c \
-		$(wildcard MID/*.c) APP/app_control_can.c APP/app_generator.c \
-		$(GENERATED_C) $(LEGACY_C) -lm -o $(HOST_DIR)/test_j1939_r3_set_const_start.exe
+		$(MID_NO_STORAGE) APP/app_control_can.c APP/app_generator.c \
+		APP/app_boot.c $(PERSIST_STUB) $(LEGACY_C) -lm -o $(HOST_DIR)/test_j1939_r3_set_const_start.exe
 	$(HOST_DIR)/test_j1939_r3_set_const_start.exe
-	$(HOST_CC) $(HOST_CFLAGS) tests/test_j1939_profile_40.c $(MID_NO_LINK) \
-		APP/app_generator.c $(GENERATED_C) $(LEGACY_C) -lm -o $(HOST_DIR)/test_j1939_profile_40.exe
+	$(HOST_CC) $(HOST_CFLAGS) -DENABLE_179_SCALAR=0 \
+		tests/test_j1939_profile_40.c $(MID_NO_LINK) \
+		APP/app_generator.c $(LEGACY_C) -lm -o $(HOST_DIR)/test_j1939_profile_40.exe
 	$(HOST_DIR)/test_j1939_profile_40.exe
 	$(HOST_CC) $(HOST_CFLAGS) tests/test_j1939_step1a.c $(LEGACY_C) \
 		MID/j1939_encode_decode.c MID/j1939_frame.c -lm -o $(HOST_DIR)/test_j1939_step1a.exe
